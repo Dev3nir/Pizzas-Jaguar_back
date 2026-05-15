@@ -52,6 +52,6 @@ app.get("/", (request, response) => {
 
 //poner a escuchar a la aplicación
 app.listen(PORT, () => {
-    console.log('Escuchando en http localhost, etc');
+    console.log('Escuchando localhost, etc');
 });
 
