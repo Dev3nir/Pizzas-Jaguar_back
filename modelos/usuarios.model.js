@@ -44,7 +44,7 @@ const getUsuarioById = async (id) => {
             JOIN ROL R
             ON U.id_rol = R.id_rol
 
-            WHERE U.id_usuario = @idario,
+            WHERE U.id_usuario = @id,
             U.nombre,
             U.nombreUsuario,
             U.estado,

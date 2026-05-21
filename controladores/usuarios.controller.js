@@ -74,7 +74,7 @@ const createUsuario = async (req, res) => {
         }
 
         // Validar username repetido
-        const existe = await usuariosModel.existsUsername(nombreUsuario);
+        const existe = await usuariosModel.existeUsername(nombreUsuario);
         if (existe) {
             return res.status(400).json({
                 error: 'Nombre de usuario ya en uso'
@@ -133,7 +133,7 @@ const updateUsuario = async (req, res) => {
 
         // Validar username repetido
         if (nombreUsuario !== usuario.nombreUsuario) {
-            const existe = await usuariosModel.existsUsername(nombreUsuario);
+            const existe = await usuariosModel.existeUsername(nombreUsuario);
             if (existe) {
                 return res.status(400).json({
                     error: 'Nombre de usuario ya en uso'
