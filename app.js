@@ -1,57 +1,48 @@
-// importar express
+//------------------------------------------------ IMPORTS ------------------------------------------------
 const express = require('express');
 const cors = require('cors');
+const http = require('http');
 
 require('dotenv').config();
 
-// La base de datos:
+// rutas
+const usuarioRoutes = require('./routers/usuarios.route');
+const loginRoutes = require('./routers/login.routes');
+
+// websocket
+const { initWebSocket } = require('./utils/websocket');
+
+//------------------------------------------------ CONFIGS ------------------------------------------------
 const { connectDB } = require('./config/db.config');
 
-
-// import pedidosRoutes from "./routes/pedidos.js"      Un ejemplo de un import de route
-
-// 1, Crear una instancia de la aplicaci´pn
-const app = express()
-
-connectDB();
-// devuelve un objeto para levantar el servidor
-
-
-
 const PORT = 3001;
-
 const version = 'v1';
 const apiBasePath = `/api/${version}`;
-//-------
-// Declarar
-const usuarioRoutes = require('./routers/usuarios.route');
 
+//------------------------------ INICIALIZACIÓN DE LA APLICACIÓN ------------------------------
+const app = express();
+const server = http.createServer(app);
+
+// inicializar websocket
+initWebSocket(server);
+connectDB();
+
+//------------------------------------------------ MIDDLEWARES ------------------------------------------------
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.urlencoded({
+    extended: true
+}));
 app.use(cors({
     origin: '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-
-// Aquí debemos ir añadiendo los routes
+//------------------------------------------------ RUTAS ------------------------------------------------
 app.use(`${apiBasePath}/usuarios`, usuarioRoutes);
+app.use(`${apiBasePath}`, loginRoutes);
 
-
-// Hay que registrar las rutas:
-// app.use("/api/pedidos", pedidosRoutes)
-
-//Antes de escuchar, hay que especificar las rutas
-app.get("/", (request, response) => {
-    response.send("<h1>Hola desde miapp</h1>")
+//------------------------------------------------ SERVER ------------------------------------------------
+server.listen(PORT, () => {
+    console.log('API escuchando en el puerto ' + PORT);
 });
-
-
-
-
-//poner a escuchar a la aplicación
-app.listen(PORT, () => {
-    console.log('Escuchando en http localhost, etc');
-});
-
