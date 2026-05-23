@@ -17,7 +17,7 @@ const promocionesRoutes = require('./routers/promociones.route');
 const reportesRoutes = require('./routers/reportes.route');
 
 const mostradorRoutes = require('./routers/mostrador.routes');
-
+const productosRoutes = require('./routers/productos.route');
 // websocket
 const { initWebSocket } = require('./utils/websocket');
 
@@ -60,7 +60,7 @@ app.use(`${apiBasePath}/reportes`, reportesRoutes);
 
 
 app.use(`${apiBasePath}/mostrador`, mostradorRoutes);
-
+app.use(`${apiBasePath}/productos`, productosRoutes);
 //------------------------------------------------ SERVER ------------------------------------------------
 server.listen(PORT, () => {
     console.log('API escuchando en el puerto ' + PORT);

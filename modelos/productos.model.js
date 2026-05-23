@@ -391,7 +391,7 @@ const updateProducto = async (id, data) => {
 
 const deleteProducto = async (id) => {
     try {
-        const result = await sql.request().input('id', sql.Int, id).query(`
+        const result = await new sql.request().input('id', sql.Int, id).query(`
             UPDATE PRODUCTO
             SET activo = 0
             WHERE id_producto = @id
