@@ -8,6 +8,7 @@ require('dotenv').config();
 // rutas
 const usuarioRoutes = require('./routers/usuarios.route');
 const loginRoutes = require('./routers/login.routes');
+const mostradorRoutes = require('./routers/mostrador.routes');
 
 // websocket
 const { initWebSocket } = require('./utils/websocket');
@@ -41,6 +42,7 @@ app.use(cors({
 //------------------------------------------------ RUTAS ------------------------------------------------
 app.use(`${apiBasePath}/usuarios`, usuarioRoutes);
 app.use(`${apiBasePath}`, loginRoutes);
+app.use(`${apiBasePath}/mostrador`, mostradorRoutes);
 
 //------------------------------------------------ SERVER ------------------------------------------------
 server.listen(PORT, () => {

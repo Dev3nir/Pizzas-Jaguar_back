@@ -1,438 +1,1382 @@
-const {sql} = require('../config/db.config');
+const { sql, poolPromise } = require('../config/db.config');
 
-const getPedidos = async () => {
-    try {
-        //
-        
-    } catch (error) {
-        throw error;
-        
+/*
+========================================================
+CONSTANTES
+========================================================
+*/
+
+const TIPOS_PEDIDO = {
+    1: 'MOSTRADOR',
+    2: 'DOMICILIO',
+    3: 'RAPPI',
+    4: 'SALON'
+};
+
+/*
+========================================================
+VALIDAR PEDIDO
+========================================================
+*/
+
+const validarPedido = (pedido) => {
+
+    if (!pedido.id_usuario) {
+        throw new Error('id_usuario requerido');
+    }
+
+    if (!pedido.id_tipo_pedido) {
+        throw new Error('id_tipo_pedido requerido');
+    }
+
+    if (!TIPOS_PEDIDO[pedido.id_tipo_pedido]) {
+        throw new Error('Tipo de pedido inválido');
+    }
+
+    if (!pedido.detalle_cliente) {
+        throw new Error('detalle_cliente requerido');
+    }
+
+    if (
+        pedido.id_tipo_pedido === 2 &&
+        !pedido.detalle_cliente.direccion
+    ) {
+        throw new Error(
+            'Pedido a domicilio requiere dirección'
+        );
+    }
+
+    if (
+        !pedido.productos ||
+        !Array.isArray(pedido.productos) ||
+        pedido.productos.length === 0
+    ) {
+        throw new Error(
+            'Debe enviar productos'
+        );
     }
 };
 
-const getTipoPedidos = async () => {
-    try {
-        const result = await sql.query(`
-            SELECT id_tipo_pedido, nombre
-            FROM TIPO_PEDIDO
-            `);
-        return result.recordset;
-    } catch (error) {
-        throw error;
-    }
-};
-const getCajaActiva = async () => {
-    try {
-        const result = await sql.query(`
-            SELECT id_caja
-            FROM CAJA
-            WHERE montoFinal IS NULL
-        `);
-        return result.recordset[0];
-    } catch (error) {
-        throw error;
-    }
-};
+/*
+========================================================
+OBTENER PRODUCTO + RECETA
+========================================================
+*/
 
+const getProductoCompleto = async (
+    transaction,
+    idProducto
+) => {
 
-const createCliente = async (data) => {
-    try {
-        const {
-            nombre,
-            telefono,
-            direccion
-        } = data;
+    const result =
+        await new sql.Request(transaction)
 
-        const result = await sql
-            .request()
-            .input('nombre', sql.VarChar, nombre)
-            .input('telefono', sql.VarChar, telefono)
-            .input('direccion', sql.VarChar, direccion)
+            .input(
+                'id_producto',
+                sql.Int,
+                idProducto
+            )
 
             .query(`
-                INSERT INTO CLIENTE (
+                SELECT
+                    P.id_producto,
+                    P.nombre,
+                    P.precio,
+                    P.tamano,
+                    P.activo,
+
+                    DR.id_insumo,
+                    DR.cantidad AS cantidad_receta,
+
+                    I.nombre AS nombre_insumo,
+                    I.cantidad AS stock_actual,
+                    I.costo_unitario,
+                    I.unidad
+
+                FROM PRODUCTO P
+
+                LEFT JOIN RECETA R
+                    ON R.id_producto = P.id_producto
+
+                LEFT JOIN DETALLE_RECETA DR
+                    ON DR.id_receta = R.id_receta
+
+                LEFT JOIN INSUMO I
+                    ON I.id_insumo = DR.id_insumo
+
+                WHERE P.id_producto = @id_producto
+            `);
+
+    if (result.recordset.length === 0) {
+        throw new Error(
+            `Producto ${idProducto} no existe`
+        );
+    }
+
+    const producto =
+        result.recordset[0];
+
+    if (!producto.activo) {
+        throw new Error(
+            `Producto ${idProducto} inactivo`
+        );
+    }
+
+    return result.recordset;
+};
+
+/*
+========================================================
+ACUMULAR INSUMOS
+========================================================
+*/
+
+const acumularInsumos = (
+    inventarioGlobal,
+    receta,
+    factor
+) => {
+
+    for (const item of receta) {
+
+        if (!item.id_insumo) {
+            continue;
+        }
+
+        const cantidadNecesaria =
+            parseFloat(item.cantidad_receta)
+            * factor;
+
+        if (
+            !inventarioGlobal[item.id_insumo]
+        ) {
+
+            inventarioGlobal[
+                item.id_insumo
+            ] = {
+
+                nombre:
+                    item.nombre_insumo,
+
+                requerido: 0,
+
+                stock:
+                    parseFloat(
+                        item.stock_actual
+                    ),
+
+                unidad:
+                    item.unidad
+            };
+        }
+
+        inventarioGlobal[
+            item.id_insumo
+        ].requerido += cantidadNecesaria;
+    }
+};
+
+/*
+========================================================
+VALIDAR INVENTARIO GLOBAL
+========================================================
+*/
+
+const validarInventarioGlobal = (
+    inventarioGlobal
+) => {
+
+    for (const id in inventarioGlobal) {
+
+        const item =
+            inventarioGlobal[id];
+
+        if (
+            item.requerido > item.stock
+        ) {
+
+            throw new Error(
+                `Stock insuficiente para ${item.nombre}. Requerido: ${item.requerido} ${item.unidad}, disponible: ${item.stock} ${item.unidad}`
+            );
+        }
+    }
+};
+
+/*
+========================================================
+DESCONTAR INVENTARIO GLOBAL
+========================================================
+*/
+
+const descontarInventarioGlobal = async (
+    transaction,
+    inventarioGlobal
+) => {
+
+    for (const id in inventarioGlobal) {
+
+        const item =
+            inventarioGlobal[id];
+
+        await new sql.Request(transaction)
+
+            .input(
+                'id_insumo',
+                sql.Int,
+                parseInt(id)
+            )
+
+            .input(
+                'cantidad',
+                sql.Decimal(10,2),
+                item.requerido
+            )
+
+            .query(`
+                UPDATE INSUMO
+                SET cantidad = cantidad - @cantidad
+                WHERE id_insumo = @id_insumo
+            `);
+    }
+};
+
+/*
+========================================================
+OBTENER PROMOCIÓN
+========================================================
+*/
+
+const getPromocion = async (
+    transaction,
+    idPromocion
+) => {
+
+    const result =
+        await new sql.Request(transaction)
+
+            .input(
+                'id_promocion',
+                sql.Int,
+                idPromocion
+            )
+
+            .query(`
+                SELECT
+                    id_promocion,
                     nombre,
-                    telefono,
-                    direccion
-                )
-
-                OUTPUT
-                INSERTED.id_cliente,
-                INSERTED.nombre,
-                INSERTED.telefono,
-                INSERTED.direccion
-
-            VALUES (
-                @nombre,
-                @telefono,
-                @direccion
-            )
+                    valor,
+                    estado,
+                    fecha_inicio,
+                    fecha_fin
+                FROM PROMOCION
+                WHERE
+                    id_promocion = @id_promocion
+                    AND estado = 1
+                    AND GETDATE()
+                    BETWEEN fecha_inicio
+                    AND fecha_fin
             `);
 
-        return result.recordset[0];
-    } catch (error) {
-        throw error;
+    if (
+        result.recordset.length === 0
+    ) {
+        return null;
     }
-};
-
-
-
-// cargar los tipos de pedido
-// insertar cliente (validando si el tipo es de mostrador o domicilio)------ NO, DADO QUE LOS VALORES SON NULLEABLES, PUEDO PONER NULL
-
-// ahora tiene que seleccionar el tipo de producto y su tamaño
-// si es pizza, se escogen sus mitades y si tiene orilla de queso
-// se ponen los ingredientes extras. Solo eso
-
-//////// HAY QU FETCHEAR LOS TIPOS DE PRODUCTO Y LOS PRODUCTOS y los insumos
-
-const createDetallePedido = async (transaction, idPedido, detalle) => {
-    const request = new sql.Request(transaction);
-
-    const result = await request
-        .input('cantidad', sql.Int, detalle.cantidad)
-        .input('id_pedido', sql.Int, idPedido)
-        .input('id_producto', sql.Int, detalle.id_producto)
-        .query(`
-            INSERT INTO DETALLE_PEDIDO (
-                cantidad,
-                id_pedido,
-                id_producto
-            )
-            OUTPUT INSERTED.id_detalle
-
-            VALUES (
-                @cantidad,
-                @id_pedido,
-                @id_producto
-            )
-        `);
-
-    return result.recordset[0].id_detalle;
-};
-
-const createMitades = async (
-    transaction,
-    idDetalle,
-    mitades
-) => {
-
-    if (!mitades || mitades.length === 0) return;
-    for (const mitad of mitades) {
-        const request = new sql.Request(transaction);
-        await request
-            .input('porcentaje', sql.Decimal(5,2), mitad.porcentaje)
-            .input('id_detalle', sql.Int, idDetalle)
-            .input('id_producto', sql.Int, mitad.id_producto)
-
-            .query(`
-                INSERT INTO MITAD_PIZZA (
-                    porcentaje,
-                    id_detalle,
-                    id_producto
-                )
-                VALUES (
-                    @porcentaje,
-                    @id_detalle,
-                    @id_producto
-                )
-            `);
-    }
-};
-
-
-const createExtras = async (
-    transaction,
-    idDetalle,
-    extras
-) => {
-
-    // Si no hay extras
-    if (!extras || extras.length === 0) return;
-
-    for (const extra of extras) {
-
-        const request = new sql.Request(transaction);
-
-        const insumo = await getInsumoById(extra.id_insumo);
-
-        const costo = extra.cantidad * insumo.costo_unitario;
-
-        await request
-            .input('cantidad', sql.Decimal(10,2), extra.cantidad)
-            .input('costo', sql.Decimal(10,2), costo)
-            .input('id_detalle', sql.Int, idDetalle)
-            .input('id_insumo', sql.Int, extra.id_insumo)
-            .query(`
-                INSERT INTO EXTRA_DETALLE (
-                    cantidad,
-                    costo,
-                    id_detalle,
-                    id_insumo
-                )
-                VALUES (
-                    @cantidad,
-                    @costo,
-                    @id_detalle,
-                    @id_insumo
-                )
-            `);
-    }
-};
-
-
-const getPromocionProducto = async (idProducto, transaction) => {
-    const request = new sql.Request(transaction);
-    const result = await request
-        .input('id_producto', sql.Int, idProducto)
-        .query(`
-            SELECT
-                P.id_promocion,
-                P.nombre,
-                P.valor,
-                TD.nombre AS tipo_descuento
-            FROM PROMOCION P
-            JOIN PRODUCTO_PROMOCION PP
-            ON P.id_promocion = PP.id_promocion
-            JOIN TIPO_DESCUENTO TD
-            ON P.id_tipo_descuento = TD.id_tipo_descuento
-
-            WHERE
-                PP.id_producto = @id_producto
-                AND P.estado = 1
-                AND GETDATE() BETWEEN P.fecha_inicio AND P.fecha_fin
-        `);
 
     return result.recordset[0];
 };
 
-const getPrecioProducto = async (idProducto, transaction) => {
+/*
+========================================================
+CALCULAR PRODUCTO
+========================================================
+*/
 
-    const request = new sql.Request(transaction);
+const calcularProducto = async (
+    transaction,
+    productoPedido,
+    inventarioGlobal
+) => {
 
-    const result = await request
-        .input('id_producto', sql.Int, idProducto)
-        .query(`
-            SELECT precio
-            FROM PRODUCTO
-            WHERE id_producto = @id_producto
-        `);
-
-    return result.recordset[0].precio;
-};
-
-const aplicarPromocion = (subtotal, promocion) => {
-
-    if (!promocion) {
-        return subtotal;
-    }
+    let precioBase = 0;
 
     let descuento = 0;
 
-    if (promocion.tipo_descuento === 'porcentaje') {
-
-        descuento = subtotal * (promocion.valor / 100);
-
-    } else if (promocion.tipo_descuento === 'monto') {
-
-        descuento = promocion.valor;
-    }
-
-    return subtotal - descuento;
-};
-
-//////// CALCULAR DINERO
-const calcularExtras = (extras) => {
-
     let totalExtras = 0;
 
-    for (const extra of extras) {
-        totalExtras += extra.costo;
-    }
+    /*
+    ====================================================
+    MITADES
+    ====================================================
+    */
 
-    return totalExtras;
-};
+    if (
+        productoPedido.mitades &&
+        productoPedido.mitades.length === 2
+    ) {
 
+        const mitad1 =
+            await getProductoCompleto(
+                transaction,
+                productoPedido
+                    .mitades[0]
+                    .id_producto
+            );
 
-const calcularTotalDetalle = async (detalle, transaction) => {
+        const mitad2 =
+            await getProductoCompleto(
+                transaction,
+                productoPedido
+                    .mitades[1]
+                    .id_producto
+            );
 
-    // PRECIO BASE
-    const precioBase = await getPrecioProducto(
-        detalle.id_producto,
-        transaction
-    );
+        /*
+        ================================================
+        PRECIO MÁS ALTO
+        ================================================
+        */
 
-    // EXTRAS
-    const totalExtras = calcularExtras(detalle.extras || []);
-
-   
-
-    // PROMOCION
-    const promocion = await getPromocionProducto(
-        detalle.id_producto,
-        transaction
-    );
-
-     // APLICAR DESCUENTO
-    let subtotal = aplicarPromocion(precioBase, promocion);
-
-
-    subtotal = subtotal + totalExtras;
-
-    // MULTIPLICAR CANTIDAD
-    const total = subtotal * detalle.cantidad;
-
-    return total;
-};
-
-
-const calcularTotalPedido = async (carrito, transaction) => {
-
-    let totalPedido = 0;
-
-    for (const detalle of carrito) {
-
-        const totalDetalle = await calcularTotalDetalle(
-            detalle,
-            transaction
+        precioBase = Math.max(
+            parseFloat(
+                mitad1[0].precio
+            ),
+            parseFloat(
+                mitad2[0].precio
+            )
         );
 
-        totalPedido += totalDetalle;
+        /*
+        ================================================
+        ACUMULAR INSUMOS
+        ================================================
+        */
+
+        acumularInsumos(
+            inventarioGlobal,
+            mitad1,
+            0.5 * productoPedido.cantidad
+        );
+
+        acumularInsumos(
+            inventarioGlobal,
+            mitad2,
+            0.5 * productoPedido.cantidad
+        );
     }
 
-    return totalPedido;
+    /*
+    ====================================================
+    PRODUCTO NORMAL
+    ====================================================
+    */
+
+    else {
+
+        const producto =
+            await getProductoCompleto(
+                transaction,
+                productoPedido.id_producto
+            );
+
+        precioBase =
+            parseFloat(
+                producto[0].precio
+            );
+
+        acumularInsumos(
+            inventarioGlobal,
+            producto,
+            productoPedido.cantidad
+        );
+    }
+
+    /*
+    ====================================================
+    EXTRAS
+    ====================================================
+    */
+
+    if (
+        productoPedido.extras &&
+        productoPedido.extras.length > 0
+    ) {
+
+        for (
+            const extra
+            of productoPedido.extras
+        ) {
+
+            const extraResult =
+                await new sql.Request(transaction)
+
+                    .input(
+                        'id_insumo',
+                        sql.Int,
+                        extra.id_insumo
+                    )
+
+                    .query(`
+                        SELECT
+                            id_insumo,
+                            nombre,
+                            cantidad,
+                            costo_unitario,
+                            unidad
+                        FROM INSUMO
+                        WHERE id_insumo = @id_insumo
+                    `);
+
+            if (
+                extraResult.recordset.length === 0
+            ) {
+                throw new Error(
+                    `Extra ${extra.id_insumo} inválido`
+                );
+            }
+
+            const insumo =
+                extraResult.recordset[0];
+
+            const cantidadExtra =
+                parseFloat(extra.cantidad)
+                * productoPedido.cantidad;
+
+            const costoExtra =
+                parseFloat(
+                    insumo.costo_unitario
+                ) * cantidadExtra;
+
+            totalExtras += costoExtra;
+
+            /*
+            ============================================
+            ACUMULAR INVENTARIO EXTRA
+            ============================================
+            */
+
+            if (
+                !inventarioGlobal[
+                    extra.id_insumo
+                ]
+            ) {
+
+                inventarioGlobal[
+                    extra.id_insumo
+                ] = {
+
+                    nombre:
+                        insumo.nombre,
+
+                    requerido: 0,
+
+                    stock:
+                        parseFloat(
+                            insumo.cantidad
+                        ),
+
+                    unidad:
+                        insumo.unidad
+                };
+            }
+
+            inventarioGlobal[
+                extra.id_insumo
+            ].requerido += cantidadExtra;
+        }
+    }
+
+    /*
+    ====================================================
+    PROMOCIONES
+    ====================================================
+    */
+
+    if (
+        productoPedido.promociones &&
+        productoPedido.promociones.length > 0
+    ) {
+
+        for (
+            const promo
+            of productoPedido.promociones
+        ) {
+
+            const promocion =
+                await getPromocion(
+                    transaction,
+                    promo.id_promocion
+                );
+
+            if (!promocion) {
+                continue;
+            }
+
+            const porcentaje =
+                parseFloat(
+                    promocion.valor
+                );
+
+            descuento +=
+                precioBase
+                * (porcentaje / 100);
+        }
+    }
+
+    /*
+    ====================================================
+    TOTAL UNITARIO
+    ====================================================
+    */
+
+    const totalUnitario =
+        (
+            precioBase
+            - descuento
+        )
+        + totalExtras;
+
+    /*
+    ====================================================
+    TOTAL PRODUCTO
+    ====================================================
+    */
+
+    const total =
+        totalUnitario
+        * productoPedido.cantidad;
+
+    return {
+        precioBase,
+        descuento,
+        totalExtras,
+        total
+    };
 };
 
+/*
+========================================================
+CREATE PEDIDO
+========================================================
+*/
 
-const createPedidoCompleto = async (data) => {
+const createPedido = async (pedido) => {
 
-    const transaction = new sql.Transaction();
+    const pool =
+        await poolPromise;
+
+    const transaction =
+        new sql.Transaction(pool);
 
     try {
 
-        // ==========================
-        // INICIAR TRANSACCION
-        // ==========================
-
         await transaction.begin();
 
-        // ==========================
-        // CALCULAR TOTAL PEDIDO
-        // ==========================
+        /*
+        ====================================================
+        VALIDACIONES
+        ====================================================
+        */
 
-        const totalPedido = await calcularTotalPedido(
-            data.carrito,
-            transaction
-        );
+        validarPedido(pedido);
 
-        // ==========================
-        // GENERAR FOLIO
-        // ==========================
+        /*
+        ====================================================
+        CAJA ACTIVA
+        ====================================================
+        */
 
-        const folio = `PED-${Date.now()}`;
-        const cajaActiva = await getCajaActiva();
-        const id_caja = cajaActiva.id_caja;
+        const cajaResult =
+            await new sql.Request(transaction)
 
-        // ==========================
-        // CREAR PEDIDO
-        // ==========================
+                .query(`
+                    SELECT TOP 1
+                        id_caja
+                    FROM CAJA
+                    WHERE montoFinal IS NULL
+                    ORDER BY id_caja DESC
+                `);
 
-        const pedidoRequest = new sql.Request(transaction);
-
-        const pedidoResult = await pedidoRequest
-            .input('folio', sql.VarChar, folio)
-            .input('hora_inicio', sql.Time, new Date())
-            .input('total', sql.Decimal(10,2), totalPedido)
-            .input('id_cliente', sql.Int, data.id_cliente)
-            .input('id_usuario', sql.Int, data.id_usuario)
-            .input('id_caja', sql.Int, id_caja)
-            .input('id_estado_pedido', sql.Int, data.id_estado_pedido)
-            .input('id_tipo_pedido', sql.Int, data.id_tipo_pedido)
-
-            .query(`
-                INSERT INTO PEDIDO (
-                    folio,
-                    hora_inicio,
-                    total,
-                    id_cliente,
-                    id_usuario,
-                    id_caja,
-                    id_estado_pedido,
-                    id_tipo_pedido
-                )
-
-                OUTPUT INSERTED.id_pedido
-
-                VALUES (
-                    @folio,
-                    @hora_inicio,
-                    @total,
-                    @id_cliente,
-                    @id_usuario,
-                    @id_caja,
-                    @id_estado_pedido,
-                    @id_tipo_pedido
-                )
-            `);
-
-        const idPedido = pedidoResult.recordset[0].id_pedido;
-
-        // ==========================
-        // RECORRER CARRITO
-        // ==========================
-
-        for (const detalle of data.carrito) {
-
-            // ==========================
-            // CREAR DETALLE PEDIDO
-            // ==========================
-
-            const idDetalle = await createDetallePedido(
-                transaction,
-                idPedido,
-                detalle
-            );
-
-            // ==========================
-            // CREAR MITADES
-            // ==========================
-
-            await createMitades(
-                transaction,
-                idDetalle,
-                detalle.mitades
-            );
-
-            // ==========================
-            // CREAR EXTRAS
-            // ==========================
-
-            await createExtras(
-                transaction,
-                idDetalle,
-                detalle.extras
+        if (
+            cajaResult.recordset.length === 0
+        ) {
+            throw new Error(
+                'No existe caja activa'
             );
         }
 
-        // ==========================
-        // CONFIRMAR TRANSACCION
-        // ==========================
+        const idCaja =
+            cajaResult.recordset[0]
+                .id_caja;
+
+        /*
+        ====================================================
+        CREAR CLIENTE
+        ====================================================
+        */
+
+        const direccion =
+            pedido.id_tipo_pedido === 2
+                ? pedido.detalle_cliente
+                    .direccion
+                : null;
+
+        const clienteResult =
+            await new sql.Request(transaction)
+
+                .input(
+                    'nombre',
+                    sql.VarChar,
+                    pedido.detalle_cliente
+                        .nombre
+                )
+
+                .input(
+                    'telefono',
+                    sql.VarChar,
+                    pedido.detalle_cliente
+                        .telefono
+                )
+
+                .input(
+                    'direccion',
+                    sql.VarChar,
+                    direccion
+                )
+
+                .query(`
+                    INSERT INTO CLIENTE (
+                        nombre,
+                        telefono,
+                        direccion
+                    )
+
+                    OUTPUT INSERTED.id_cliente
+
+                    VALUES (
+                        @nombre,
+                        @telefono,
+                        @direccion
+                    )
+                `);
+
+        const idCliente =
+            clienteResult.recordset[0]
+                .id_cliente;
+
+        /*
+        ====================================================
+        CREAR PEDIDO
+        ====================================================
+        */
+
+        const pedidoResult =
+            await new sql.Request(transaction)
+
+                .input(
+                    'folio',
+                    sql.VarChar,
+                    `PED-${Date.now()}`
+                )
+
+                .input(
+                    'hora_inicio',
+                    sql.Time,
+                    new Date()
+                )
+
+                .input(
+                    'total',
+                    sql.Decimal(10,2),
+                    0
+                )
+
+                .input(
+                    'id_cliente',
+                    sql.Int,
+                    idCliente
+                )
+
+                .input(
+                    'id_usuario',
+                    sql.Int,
+                    pedido.id_usuario
+                )
+
+                .input(
+                    'id_caja',
+                    sql.Int,
+                    idCaja
+                )
+
+                .input(
+                    'id_estado_pedido',
+                    sql.Int,
+                    1
+                )
+
+                .input(
+                    'id_tipo_pedido',
+                    sql.Int,
+                    pedido.id_tipo_pedido
+                )
+
+                .query(`
+                    INSERT INTO PEDIDO (
+                        folio,
+                        hora_inicio,
+                        total,
+                        id_cliente,
+                        id_usuario,
+                        id_caja,
+                        id_estado_pedido,
+                        id_tipo_pedido
+                    )
+
+                    OUTPUT INSERTED.id_pedido
+
+                    VALUES (
+                        @folio,
+                        @hora_inicio,
+                        @total,
+                        @id_cliente,
+                        @id_usuario,
+                        @id_caja,
+                        @id_estado_pedido,
+                        @id_tipo_pedido
+                    )
+                `);
+
+        const idPedido =
+            pedidoResult.recordset[0]
+                .id_pedido;
+
+        /*
+        ====================================================
+        VARIABLES GLOBALES
+        ====================================================
+        */
+
+        let totalPedido = 0;
+
+        const inventarioGlobal = {};
+
+        const detallesInsertados = [];
+
+        /*
+        ====================================================
+        RECORRER PRODUCTOS
+        ====================================================
+        */
+
+        for (
+            const productoPedido
+            of pedido.productos
+        ) {
+
+            /*
+            ================================================
+            CALCULAR PRODUCTO
+            ================================================
+            */
+
+            const calculo =
+                await calcularProducto(
+                    transaction,
+                    productoPedido,
+                    inventarioGlobal
+                );
+
+            totalPedido += calculo.total;
+
+            /*
+            ================================================
+            INSERTAR DETALLE
+            ================================================
+            */
+
+            const detalleResult =
+                await new sql.Request(transaction)
+
+                    .input(
+                        'cantidad',
+                        sql.Int,
+                        productoPedido.cantidad
+                    )
+
+                    .input(
+                        'id_pedido',
+                        sql.Int,
+                        idPedido
+                    )
+
+                    .input(
+                        'id_producto',
+                        sql.Int,
+                        productoPedido.id_producto
+                    )
+
+                    .query(`
+                        INSERT INTO DETALLE_PEDIDO (
+                            cantidad,
+                            id_pedido,
+                            id_producto
+                        )
+
+                        OUTPUT INSERTED.id_detalle
+
+                        VALUES (
+                            @cantidad,
+                            @id_pedido,
+                            @id_producto
+                        )
+                    `);
+
+            const idDetalle =
+                detalleResult.recordset[0]
+                    .id_detalle;
+
+            /*
+            ================================================
+            MITADES
+            ================================================
+            */
+
+            if (
+                productoPedido.mitades &&
+                productoPedido.mitades.length === 2
+            ) {
+
+                for (
+                    const mitad
+                    of productoPedido.mitades
+                ) {
+
+                    await new sql.Request(transaction)
+
+                        .input(
+                            'porcentaje',
+                            sql.Decimal(5,2),
+                            50
+                        )
+
+                        .input(
+                            'id_detalle',
+                            sql.Int,
+                            idDetalle
+                        )
+
+                        .input(
+                            'id_producto',
+                            sql.Int,
+                            mitad.id_producto
+                        )
+
+                        .query(`
+                            INSERT INTO MITAD_PIZZA (
+                                porcentaje,
+                                id_detalle,
+                                id_producto
+                            )
+
+                            VALUES (
+                                @porcentaje,
+                                @id_detalle,
+                                @id_producto
+                            )
+                        `);
+                }
+            }
+
+            /*
+            ================================================
+            EXTRAS
+            ================================================
+            */
+
+            if (
+                productoPedido.extras &&
+                productoPedido.extras.length > 0
+            ) {
+
+                for (
+                    const extra
+                    of productoPedido.extras
+                ) {
+
+                    const extraResult =
+                        await new sql.Request(transaction)
+
+                            .input(
+                                'id_insumo',
+                                sql.Int,
+                                extra.id_insumo
+                            )
+
+                            .query(`
+                                SELECT
+                                    costo_unitario
+                                FROM INSUMO
+                                WHERE id_insumo = @id_insumo
+                            `);
+
+                    const costoUnitario =
+                        parseFloat(
+                            extraResult
+                                .recordset[0]
+                                .costo_unitario
+                        );
+
+                    const costoTotal =
+                        costoUnitario
+                        * parseFloat(
+                            extra.cantidad
+                        )
+                        * productoPedido.cantidad;
+
+                    await new sql.Request(transaction)
+
+                        .input(
+                            'cantidad',
+                            sql.Decimal(10,2),
+                            extra.cantidad
+                        )
+
+                        .input(
+                            'costo',
+                            sql.Decimal(10,2),
+                            costoTotal
+                        )
+
+                        .input(
+                            'id_detalle',
+                            sql.Int,
+                            idDetalle
+                        )
+
+                        .input(
+                            'id_insumo',
+                            sql.Int,
+                            extra.id_insumo
+                        )
+
+                        .query(`
+                            INSERT INTO EXTRAS (
+                                cantidad,
+                                costo,
+                                id_detalle,
+                                id_insumo
+                            )
+
+                            VALUES (
+                                @cantidad,
+                                @costo,
+                                @id_detalle,
+                                @id_insumo
+                            )
+                        `);
+                }
+            }
+
+            detallesInsertados.push({
+                id_detalle: idDetalle
+            });
+        }
+
+        /*
+        ====================================================
+        VALIDAR INVENTARIO
+        ====================================================
+        */
+
+        validarInventarioGlobal(
+            inventarioGlobal
+        );
+
+        /*
+        ====================================================
+        DESCONTAR INVENTARIO
+        ====================================================
+        */
+
+        await descontarInventarioGlobal(
+            transaction,
+            inventarioGlobal
+        );
+
+        /*
+        ====================================================
+        ACTUALIZAR TOTAL
+        ====================================================
+        */
+
+        await new sql.Request(transaction)
+
+            .input(
+                'id_pedido',
+                sql.Int,
+                idPedido
+            )
+
+            .input(
+                'total',
+                sql.Decimal(10,2),
+                totalPedido
+            )
+
+            .query(`
+                UPDATE PEDIDO
+                SET total = @total
+                WHERE id_pedido = @id_pedido
+            `);
+
+        /*
+        ====================================================
+        COMMIT
+        ====================================================
+        */
 
         await transaction.commit();
 
         return {
-            message: 'Pedido creado correctamente',
-            idPedido
+            success: true,
+            message:
+                'Pedido creado correctamente',
+            id_pedido: idPedido,
+            total: totalPedido,
+            inventario_utilizado:
+                inventarioGlobal
         };
 
     } catch (error) {
-
-        // ==========================
-        // REVERTIR CAMBIOS
-        // ==========================
 
         await transaction.rollback();
 
         throw error;
     }
+};
+
+/*
+{ "id_usuario": 1, "id_tipo_pedido": 1, "detalle_cliente": { "nombre": "Juan Perez", "telefono": "4771234567", "direccion": "Leon" }, "productos": [ { "id_producto": 1, "cantidad": 1, "promociones": [ ], "mitades": [ { "id_producto": 1 }, { "id_producto": 2 } ], "extras": [ { "id_insumo": 1, "cantidad": 1 } ] } ] }
+
+*/
+
+const getPedidoById = async (idPedido) => {
+    try {
+        /*
+        ====================================================
+        1. OBTENER INFORMACIÓN BASE DEL PEDIDO
+        ====================================================
+        */
+        const pedidoResult = await new sql.Request()
+            .input('id_pedido', sql.Int, idPedido)
+            .query(`
+                SELECT
+                    P.id_pedido,
+                    P.folio,
+                    P.hora_inicio,
+                    P.total,
+
+                    C.id_cliente,
+                    C.nombre AS cliente_nombre,
+                    C.telefono,
+                    C.direccion,
+
+                    U.id_usuario,
+
+                    TP.nombre AS tipo_pedido,
+                    EP.nombre AS estado_pedido,
+
+                    -- Lógica para saber si está pagado (Suma de pagos >= total)
+                    CAST(
+                        CASE 
+                            WHEN (
+                                SELECT ISNULL(SUM(monto), 0) 
+                                FROM PAGO 
+                                WHERE id_pedido = P.id_pedido
+                            ) >= P.total THEN 1 
+                            ELSE 0 
+                        END AS BIT
+                    ) AS Pagado
+
+                FROM PEDIDO P
+
+                LEFT JOIN CLIENTE C
+                    ON C.id_cliente = P.id_cliente
+
+                LEFT JOIN USUARIO U
+                    ON U.id_usuario = P.id_usuario
+
+                LEFT JOIN TIPO_PEDIDO TP
+                    ON TP.id_tipo_pedido = P.id_tipo_pedido
+
+                LEFT JOIN ESTADO_PEDIDO EP
+                    ON EP.id_estado_pedido = P.id_estado_pedido
+
+                WHERE P.id_pedido = @id_pedido
+            `);
+
+        if (pedidoResult.recordset.length === 0) {
+            throw new Error('Pedido no encontrado');
+        }
+
+        const pedido = pedidoResult.recordset[0];
+
+        /*
+        ====================================================
+        2. OBTENER PRODUCTOS (DETALLE DEL PEDIDO)
+        ====================================================
+        */
+        const detalleResult = await new sql.Request()
+            .input('id_pedido', sql.Int, idPedido)
+            .query(`
+                SELECT
+                    DP.id_detalle,
+                    DP.cantidad,
+
+                    P.id_producto,
+                    P.nombre,
+                    P.precio,
+                    P.tamano
+                FROM DETALLE_PEDIDO DP
+
+                INNER JOIN PRODUCTO P
+                    ON P.id_producto = DP.id_producto
+
+                WHERE DP.id_pedido = @id_pedido
+            `);
+
+        const productos = detalleResult.recordset;
+
+        /*
+        ====================================================
+        3. OBTENER MITADES Y EXTRAS POR CADA PRODUCTO
+        ====================================================
+        */
+        for (const producto of productos) {
+
+            // --- MITADES ---
+            const mitadesResult = await new sql.Request()
+                .input('id_detalle', sql.Int, producto.id_detalle)
+                .query(`
+                    SELECT
+                        MP.porcentaje,
+                        P.id_producto,
+                        P.nombre,
+                        P.precio
+                    FROM MITAD_PIZZA MP
+
+                    INNER JOIN PRODUCTO P
+                        ON P.id_producto = MP.id_producto
+
+                    WHERE MP.id_detalle = @id_detalle
+                `);
+
+            producto.mitades = mitadesResult.recordset;
+
+            // --- EXTRAS ---
+            const extrasResult = await new sql.Request()
+                .input('id_detalle', sql.Int, producto.id_detalle)
+                .query(`
+                    SELECT
+                        E.cantidad,
+                        E.costo,
+
+                        I.id_insumo,
+                        I.nombre AS insumo_nombre,
+                        I.unidad
+                    FROM EXTRAS E
+
+                    INNER JOIN INSUMO I
+                        ON I.id_insumo = E.id_insumo
+
+                    WHERE E.id_detalle = @id_detalle
+                `);
+
+            producto.extras = extrasResult.recordset;
+            
+            // --- PROMOCIONES ---
+            // Si guardas el registro de promociones aplicadas, iría aquí.
+            // Si no, lo dejamos como un arreglo vacío para mantener la estructura.
+            producto.promociones = [];
+        }
+
+        /*
+        ====================================================
+        4. INTEGRAR Y RETORNAR
+        ====================================================
+        */
+        pedido.productos = productos;
+
+        return pedido;
+
+    } catch (error) {
+        throw error;
+    }
+};
+
+
+const getPedidosHoy = async () => {
+    try {
+        /*
+        ====================================================
+        1. OBTENER TODOS LOS PEDIDOS DE HOY
+        ====================================================
+        */
+        const pedidosResult = await new sql.Request()
+            .query(`
+                SELECT
+                    P.id_pedido,
+                    P.folio,
+                    P.hora_inicio,
+                    P.total,
+
+                    C.id_cliente,
+                    C.nombre AS cliente_nombre,
+                    C.telefono,
+                    C.direccion,
+
+                    U.id_usuario,
+
+                    TP.nombre AS tipo_pedido,
+                    EP.nombre AS estado_pedido,
+
+                    -- Lógica para saber si está pagado
+                    CAST(
+                        CASE 
+                            WHEN (
+                                SELECT ISNULL(SUM(monto), 0) 
+                                FROM PAGO 
+                                WHERE id_pedido = P.id_pedido
+                            ) >= P.total THEN 1 
+                            ELSE 0 
+                        END AS BIT
+                    ) AS Pagado
+
+                FROM PEDIDO P
+
+                LEFT JOIN CLIENTE C
+                    ON C.id_cliente = P.id_cliente
+
+                LEFT JOIN USUARIO U
+                    ON U.id_usuario = P.id_usuario
+
+                LEFT JOIN TIPO_PEDIDO TP
+                    ON TP.id_tipo_pedido = P.id_tipo_pedido
+
+                LEFT JOIN ESTADO_PEDIDO EP
+                    ON EP.id_estado_pedido = P.id_estado_pedido
+
+                -- Filtramos por la fecha de hoy
+                WHERE P.fecha = CAST(GETDATE() AS DATE)
+                ORDER BY P.hora_inicio DESC
+            `);
+
+        const pedidos = pedidosResult.recordset;
+
+        // Si no hay pedidos hoy, devolvemos un arreglo vacío y terminamos
+        if (pedidos.length === 0) {
+            return [];
+        }
+
+        /*
+        ====================================================
+        2. RECORRER CADA PEDIDO PARA LLENAR SUS PRODUCTOS
+        ====================================================
+        */
+        for (const pedido of pedidos) {
+            
+            // Buscar los detalles de ESTE pedido en particular
+            const detalleResult = await new sql.Request()
+                .input('id_pedido', sql.Int, pedido.id_pedido)
+                .query(`
+                    SELECT
+                        DP.id_detalle,
+                        DP.cantidad,
+
+                        P.id_producto,
+                        P.nombre,
+                        P.precio,
+                        P.tamano
+                    FROM DETALLE_PEDIDO DP
+
+                    INNER JOIN PRODUCTO P
+                        ON P.id_producto = DP.id_producto
+
+                    WHERE DP.id_pedido = @id_pedido
+                `);
+
+            const productos = detalleResult.recordset;
+
+            /*
+            ====================================================
+            3. OBTENER MITADES Y EXTRAS POR CADA PRODUCTO
+            ====================================================
+            */
+            for (const producto of productos) {
+
+                // --- MITADES ---
+                const mitadesResult = await new sql.Request()
+                    .input('id_detalle', sql.Int, producto.id_detalle)
+                    .query(`
+                        SELECT
+                            MP.porcentaje,
+                            P.id_producto,
+                            P.nombre,
+                            P.precio
+                        FROM MITAD_PIZZA MP
+
+                        INNER JOIN PRODUCTO P
+                            ON P.id_producto = MP.id_producto
+
+                        WHERE MP.id_detalle = @id_detalle
+                    `);
+
+                producto.mitades = mitadesResult.recordset;
+
+                // --- EXTRAS ---
+                const extrasResult = await new sql.Request()
+                    .input('id_detalle', sql.Int, producto.id_detalle)
+                    .query(`
+                        SELECT
+                            E.cantidad,
+                            E.costo,
+
+                            I.id_insumo,
+                            I.nombre AS insumo_nombre,
+                            I.unidad
+                        FROM EXTRAS E
+
+                        INNER JOIN INSUMO I
+                            ON I.id_insumo = E.id_insumo
+
+                        WHERE E.id_detalle = @id_detalle
+                    `);
+
+                producto.extras = extrasResult.recordset;
+                
+                // --- PROMOCIONES ---
+                producto.promociones = [];
+            }
+
+            // Asignar el arreglo de productos al pedido actual
+            pedido.productos = productos;
+        }
+
+        /*
+        ====================================================
+        4. RETORNAR EL ARREGLO COMPLETO DE PEDIDOS
+        ====================================================
+        */
+        return pedidos;
+
+    } catch (error) {
+        throw error;
+    }
+};
+
+module.exports = {
+    createPedido,
+    getPedidoById,
+    getPedidosHoy
 };
