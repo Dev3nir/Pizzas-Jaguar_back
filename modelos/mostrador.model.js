@@ -1215,7 +1215,6 @@ const getPedidoById = async (idPedido) => {
     }
 };
 
-
 const getPedidosHoy = async () => {
     try {
         /*
@@ -1375,8 +1374,434 @@ const getPedidosHoy = async () => {
     }
 };
 
+const getEstadisticas = async () => {
+    try {
+        const result = await new sql.Request().query(`
+            SELECT 
+                -- Ventas del día actual (Hoy)
+                (
+                    SELECT ISNULL(SUM(total), 0) 
+                    FROM PEDIDO 
+                    WHERE fecha = CAST(GETDATE() AS DATE)
+                ) AS ventas_dia,
+                
+                -- Ventas de los últimos 30 días
+                (
+                    SELECT ISNULL(SUM(total), 0) 
+                    FROM PEDIDO 
+                    WHERE fecha >= CAST(DATEADD(day, -30, GETDATE()) AS DATE)
+                ) AS ventas_mes,
+                
+                -- Producto más vendido (Histórico o podrías filtrarlo por fecha también)
+                (
+                    SELECT TOP 1 P.nombre 
+                    FROM DETALLE_PEDIDO DP 
+                    INNER JOIN PRODUCTO P ON P.id_producto = DP.id_producto 
+                    GROUP BY P.nombre 
+                    ORDER BY SUM(DP.cantidad) DESC
+                ) AS productos_vendidos
+        `);
+
+        const stats = result.recordset[0];
+
+        // Formateamos el resultado para que coincida exactamente con lo que pediste
+        return {
+            // Convertimos a string por si el JSON lo requiere en ese formato específico
+            "ventas_dia": stats.ventas_dia.toString(),
+            "ventas_mes": stats.ventas_mes.toString(),
+            "productos_vendidos": stats.productos_vendidos || 'Sin ventas'
+        };
+
+    } catch (error) {
+        throw error;
+    }
+};
+
+//
+/*
+========================================================
+RESTAURAR INVENTARIO (HELPER)
+========================================================
+*/
+const restaurarInventarioPedido = async (transaction, idPedido) => {
+    
+    // 1. Restaurar insumos de EXTRAS
+    await new sql.Request(transaction)
+        .input('id_pedido', sql.Int, idPedido)
+        .query(`
+            UPDATE I
+            SET I.cantidad = I.cantidad + Rev.cantidad_restaurar
+            FROM INSUMO I
+            INNER JOIN (
+                SELECT E.id_insumo, SUM(E.cantidad) as cantidad_restaurar
+                FROM EXTRAS E
+                INNER JOIN DETALLE_PEDIDO DP ON DP.id_detalle = E.id_detalle
+                WHERE DP.id_pedido = @id_pedido
+                GROUP BY E.id_insumo
+            ) Rev ON I.id_insumo = Rev.id_insumo
+        `);
+
+    // 2. Restaurar insumos de PRODUCTOS NORMALES
+    await new sql.Request(transaction)
+        .input('id_pedido', sql.Int, idPedido)
+        .query(`
+            UPDATE I
+            SET I.cantidad = I.cantidad + Rev.cantidad_restaurar
+            FROM INSUMO I
+            INNER JOIN (
+                SELECT DR.id_insumo, SUM(DR.cantidad * DP.cantidad) as cantidad_restaurar
+                FROM DETALLE_PEDIDO DP
+                INNER JOIN RECETA R ON R.id_producto = DP.id_producto
+                INNER JOIN DETALLE_RECETA DR ON DR.id_receta = R.id_receta
+                LEFT JOIN MITAD_PIZZA MP ON MP.id_detalle = DP.id_detalle
+                WHERE DP.id_pedido = @id_pedido AND MP.id_mitad IS NULL
+                GROUP BY DR.id_insumo
+            ) Rev ON I.id_insumo = Rev.id_insumo
+        `);
+
+    // 3. Restaurar insumos de MITADES (Calculado al 50%)
+    await new sql.Request(transaction)
+        .input('id_pedido', sql.Int, idPedido)
+        .query(`
+            UPDATE I
+            SET I.cantidad = I.cantidad + Rev.cantidad_restaurar
+            FROM INSUMO I
+            INNER JOIN (
+                SELECT DR.id_insumo, SUM(DR.cantidad * 0.5 * DP.cantidad) as cantidad_restaurar
+                FROM MITAD_PIZZA MP
+                INNER JOIN DETALLE_PEDIDO DP ON DP.id_detalle = MP.id_detalle
+                INNER JOIN RECETA R ON R.id_producto = MP.id_producto
+                INNER JOIN DETALLE_RECETA DR ON DR.id_receta = R.id_receta
+                WHERE DP.id_pedido = @id_pedido
+                GROUP BY DR.id_insumo
+            ) Rev ON I.id_insumo = Rev.id_insumo
+        `);
+};
+
+/*
+========================================================
+UPDATE PEDIDO
+========================================================
+*/
+const updatePedido = async (idPedido, pedido) => {
+
+    const pool = await poolPromise;
+    const transaction = new sql.Transaction(pool);
+
+    try {
+        await transaction.begin();
+
+        /*
+        ====================================================
+        1. VALIDACIONES BÁSICAS Y VERIFICACIÓN
+        ====================================================
+        */
+        validarPedido(pedido);
+
+        const checkResult = await new sql.Request(transaction)
+            .input('id_pedido', sql.Int, idPedido)
+            .query(`
+                SELECT id_cliente, id_estado_pedido 
+                FROM PEDIDO 
+                WHERE id_pedido = @id_pedido
+            `);
+
+        if (checkResult.recordset.length === 0) {
+            throw new Error('Pedido no encontrado');
+        }
+
+        const oldPedido = checkResult.recordset[0];
+
+        // Opcional: Proteger pedidos que ya avanzaron
+        if (oldPedido.id_estado_pedido > 1) {
+            throw new Error('Solo se pueden modificar pedidos con estado "En preparación"');
+        }
+
+        /*
+        ====================================================
+        2. ACTUALIZAR CLIENTE
+        ====================================================
+        */
+        const direccion = pedido.id_tipo_pedido === 2 ? pedido.detalle_cliente.direccion : null;
+
+        await new sql.Request(transaction)
+            .input('id_cliente', sql.Int, oldPedido.id_cliente)
+            .input('nombre', sql.VarChar, pedido.detalle_cliente.nombre)
+            .input('telefono', sql.VarChar, pedido.detalle_cliente.telefono)
+            .input('direccion', sql.VarChar, direccion)
+            .query(`
+                UPDATE CLIENTE 
+                SET nombre = @nombre, telefono = @telefono, direccion = @direccion
+                WHERE id_cliente = @id_cliente
+            `);
+
+        /*
+        ====================================================
+        3. DEVOLVER INVENTARIO VIEJO Y BORRAR DETALLES
+        ====================================================
+        */
+        await restaurarInventarioPedido(transaction, idPedido);
+
+        await new sql.Request(transaction)
+            .input('id_pedido', sql.Int, idPedido)
+            .query(`
+                -- Borramos en orden para respetar las Foreign Keys
+                DELETE E FROM EXTRAS E INNER JOIN DETALLE_PEDIDO DP ON E.id_detalle = DP.id_detalle WHERE DP.id_pedido = @id_pedido;
+                DELETE MP FROM MITAD_PIZZA MP INNER JOIN DETALLE_PEDIDO DP ON MP.id_detalle = DP.id_detalle WHERE DP.id_pedido = @id_pedido;
+                DELETE FROM DETALLE_PEDIDO WHERE id_pedido = @id_pedido;
+            `);
+
+        /*
+        ====================================================
+        4. ACTUALIZAR TIPO PEDIDO BASE
+        ====================================================
+        */
+        await new sql.Request(transaction)
+            .input('id_pedido', sql.Int, idPedido)
+            .input('id_tipo_pedido', sql.Int, pedido.id_tipo_pedido)
+            .query(`
+                UPDATE PEDIDO
+                SET id_tipo_pedido = @id_tipo_pedido
+                WHERE id_pedido = @id_pedido
+            `);
+
+        /*
+        ====================================================
+        5. RECORRER E INSERTAR NUEVOS PRODUCTOS
+        ====================================================
+        */
+        let totalPedido = 0;
+        const inventarioGlobal = {};
+
+        for (const productoPedido of pedido.productos) {
+
+            // Calcular
+            const calculo = await calcularProducto(transaction, productoPedido, inventarioGlobal);
+            totalPedido += calculo.total;
+
+            // Insertar Detalle
+            const detalleResult = await new sql.Request(transaction)
+                .input('cantidad', sql.Int, productoPedido.cantidad)
+                .input('id_pedido', sql.Int, idPedido)
+                .input('id_producto', sql.Int, productoPedido.id_producto)
+                .query(`
+                    INSERT INTO DETALLE_PEDIDO (cantidad, id_pedido, id_producto)
+                    OUTPUT INSERTED.id_detalle
+                    VALUES (@cantidad, @id_pedido, @id_producto)
+                `);
+
+            const idDetalle = detalleResult.recordset[0].id_detalle;
+
+            // Mitades
+            if (productoPedido.mitades && productoPedido.mitades.length === 2) {
+                for (const mitad of productoPedido.mitades) {
+                    await new sql.Request(transaction)
+                        .input('porcentaje', sql.Decimal(5,2), 50)
+                        .input('id_detalle', sql.Int, idDetalle)
+                        .input('id_producto', sql.Int, mitad.id_producto)
+                        .query(`
+                            INSERT INTO MITAD_PIZZA (porcentaje, id_detalle, id_producto)
+                            VALUES (@porcentaje, @id_detalle, @id_producto)
+                        `);
+                }
+            }
+
+            // Extras
+            if (productoPedido.extras && productoPedido.extras.length > 0) {
+                for (const extra of productoPedido.extras) {
+                    const extraResult = await new sql.Request(transaction)
+                        .input('id_insumo', sql.Int, extra.id_insumo)
+                        .query(`SELECT costo_unitario FROM INSUMO WHERE id_insumo = @id_insumo`);
+
+                    const costoUnitario = parseFloat(extraResult.recordset[0].costo_unitario);
+                    const costoTotal = costoUnitario * parseFloat(extra.cantidad) * productoPedido.cantidad;
+
+                    await new sql.Request(transaction)
+                        .input('cantidad', sql.Decimal(10,2), extra.cantidad)
+                        .input('costo', sql.Decimal(10,2), costoTotal)
+                        .input('id_detalle', sql.Int, idDetalle)
+                        .input('id_insumo', sql.Int, extra.id_insumo)
+                        .query(`
+                            INSERT INTO EXTRAS (cantidad, costo, id_detalle, id_insumo)
+                            VALUES (@cantidad, @costo, @id_detalle, @id_insumo)
+                        `);
+                }
+            }
+        }
+
+        /*
+        ====================================================
+        6. VERIFICAR Y DESCONTAR INVENTARIO NUEVO
+        ====================================================
+        */
+        validarInventarioGlobal(inventarioGlobal);
+        await descontarInventarioGlobal(transaction, inventarioGlobal);
+
+        /*
+        ====================================================
+        7. ACTUALIZAR TOTAL FINAL Y CERRAR
+        ====================================================
+        */
+        await new sql.Request(transaction)
+            .input('id_pedido', sql.Int, idPedido)
+            .input('total', sql.Decimal(10,2), totalPedido)
+            .query(`
+                UPDATE PEDIDO
+                SET total = @total
+                WHERE id_pedido = @id_pedido
+            `);
+
+        await transaction.commit();
+
+        return {
+            success: true,
+            message: 'Pedido modificado correctamente',
+            id_pedido: idPedido,
+            total: totalPedido
+        };
+
+    } catch (error) {
+        await transaction.rollback();
+        throw error;
+    }
+};
+/*
+{
+    "id_usuario": 1,
+    "id_tipo_pedido": 2, 
+    "detalle_cliente": {
+        "nombre": "Juan Perez",
+        "telefono": "4771234567",
+        "direccion": "Blvd. Aeropuerto 123, León, Gto"
+    },
+    "productos": [
+        {
+            "id_producto": 1,
+            "cantidad": 1,
+            "promociones": [],
+            "mitades": [
+                { "id_producto": 1 },
+                { "id_producto": 2 }
+            ],
+            "extras": [
+                { 
+                    "id_insumo": 1, 
+                    "cantidad": 2 
+                }
+            ]
+        },
+        {
+            "id_producto": 3,
+            "cantidad": 2,
+            "promociones": [],
+            "mitades": [],
+            "extras": []
+        }
+    ]
+}
+*/
+
+//cancelar pedido, cambiar estado a cancelado, no se elimina por temas de integridad referencial y para mantener el historial
+/*
+========================================================
+CANCELAR PEDIDO (REUTILIZANDO LÓGICA DE CREATE Y REGISTRANDO MERMA)
+========================================================
+*/
+const cancelarPedido = async (idPedido, esMerma) => {
+    
+    // 1. Obtenemos el pedido completo armado como JSON (esto incluye productos, mitades y extras)
+    const pedido = await getPedidoById(idPedido);
+
+    const pool = await poolPromise;
+    const transaction = new sql.Transaction(pool);
+
+    try {
+        await transaction.begin();
+
+        // 2. Calculamos los insumos usando EXACTAMENTE la misma función del create
+        const inventarioGlobal = {};
+        for (const productoPedido of pedido.productos) {
+            await calcularProducto(transaction, productoPedido, inventarioGlobal);
+        }
+
+        // 3. Cambiamos el estado a Cancelado (5)
+        await new sql.Request(transaction)
+            .input('id_pedido', sql.Int, idPedido)
+            .query(`
+                UPDATE PEDIDO
+                SET id_estado_pedido = 5
+                WHERE id_pedido = @id_pedido
+            `);
+
+        let insumosMerma = [];
+
+        // 4. Transformar salida o regresar inventario
+        if (esMerma) {
+            // Si es merma, iteramos el inventarioGlobal
+            for (const id in inventarioGlobal) {
+                const item = inventarioGlobal[id];
+                if (item.requerido > 0) {
+                    
+                    // A) Lo guardamos en el arreglo para mandarlo al Frontend
+                    insumosMerma.push({
+                        id_insumo: parseInt(id),
+                        nombre: item.nombre,
+                        unidad: item.unidad,
+                        cantidad: item.requerido
+                    });
+
+                    // B) Lo insertamos físicamente en la tabla MERMA
+                    await new sql.Request(transaction)
+                        .input('cantidad', sql.Decimal(10,2), item.requerido)
+                        .input('comentarios', sql.VarChar, `Merma por pedido cancelado: ${idPedido}`)
+                        .input('id_insumo', sql.Int, parseInt(id))
+                        .input('id_tipo_merma', sql.Int, 1)
+                        .query(`
+                            INSERT INTO MERMA (cantidad, comentarios, id_insumo, id_tipo_merma)
+                            VALUES (@cantidad, @comentarios, @id_insumo, @id_tipo_merma)
+                        `);
+                }
+            }
+        } else {
+            // Si NO es merma, devolvemos las cantidades al stock sumándolas en la tabla INSUMO
+            for (const id in inventarioGlobal) {
+                const item = inventarioGlobal[id];
+                if (item.requerido > 0) {
+                    await new sql.Request(transaction)
+                        .input('id_insumo', sql.Int, parseInt(id))
+                        .input('cantidad', sql.Decimal(10,2), item.requerido)
+                        .query(`
+                            UPDATE INSUMO
+                            SET cantidad = cantidad + @cantidad
+                            WHERE id_insumo = @id_insumo
+                        `);
+                }
+            }
+        }
+
+        await transaction.commit();
+
+        return {
+            success: true,
+            message: esMerma 
+                ? 'Pedido cancelado. Insumos registrados en Merma correctamente.' 
+                : 'Pedido cancelado y stock devuelto al inventario.',
+            insumos_merma: insumosMerma
+        };
+
+    } catch (error) {
+        await transaction.rollback();
+        throw error;
+    }
+};
+/*
+{ "merma": true }
+*/
 module.exports = {
     createPedido,
     getPedidoById,
-    getPedidosHoy
+    getPedidosHoy,
+    getEstadisticas,
+    cancelarPedido,
+    updatePedido
 };

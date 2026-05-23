@@ -9,7 +9,7 @@ require('dotenv').config();
 const usuarioRoutes = require('./routers/usuarios.route');
 const loginRoutes = require('./routers/login.routes');
 const mostradorRoutes = require('./routers/mostrador.routes');
-
+const productosRoutes = require('./routers/productos.route');
 // websocket
 const { initWebSocket } = require('./utils/websocket');
 
@@ -43,7 +43,7 @@ app.use(cors({
 app.use(`${apiBasePath}/usuarios`, usuarioRoutes);
 app.use(`${apiBasePath}`, loginRoutes);
 app.use(`${apiBasePath}/mostrador`, mostradorRoutes);
-
+app.use(`${apiBasePath}/productos`, productosRoutes);
 //------------------------------------------------ SERVER ------------------------------------------------
 server.listen(PORT, () => {
     console.log('API escuchando en el puerto ' + PORT);
