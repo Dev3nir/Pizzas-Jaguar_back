@@ -40,12 +40,6 @@ const getCajaById = async (req, res) => {
 const abrirCaja = async (req, res) => {
     try {
 
-        // RF-41: Verificar que el usuario autenticado tenga rol de administrador
-        // (el middleware de autenticación debe inyectar req.usuario)
-        if (!req.usuario || req.usuario.id_rol !== 1) {
-            return res.status(403).json({ error: 'No tienes permisos suficientes para realizar esta operación' });
-        }
-
         // RF-39 Excepción 2: Verificar que no exista ya una apertura hoy
         const cajaExistente = await cajaModel.getCajaHoy();
         if (cajaExistente) {
@@ -65,7 +59,7 @@ const abrirCaja = async (req, res) => {
             return res.status(400).json({ error: 'El monto inicial debe ser un valor numérico válido mayor o igual a 0' });
         }
 
-        const id_usuario = req.usuario.id_usuario;
+        const id_usuario = req.user.id_usuario;
 
         const nuevaCaja = await cajaModel.abrirCaja(monto, id_usuario);
 
@@ -79,11 +73,6 @@ const abrirCaja = async (req, res) => {
 // Consultar monto estimado para el cierre
 const getMontoEstimado = async (req, res) => {
     try {
-
-        // RF-41: Verificar rol de administrador
-        if (!req.usuario || req.usuario.id_rol !== 1) {
-            return res.status(403).json({ error: 'No tienes permisos suficientes para realizar esta operación' });
-        }
 
         // RF-40 Excepción 2: Verificar que exista apertura hoy
         const cajaHoy = await cajaModel.getCajaHoy();
@@ -108,12 +97,7 @@ const getMontoEstimado = async (req, res) => {
 // Cierre de caja
 const cerrarCaja = async (req, res) => {
     try {
-
-        // RF-41: Verificar rol de administrador
-        if (!req.usuario || req.usuario.id_rol !== 1) {
-            return res.status(403).json({ error: 'No tienes permisos suficientes para realizar esta operación' });
-        }
-
+        
         // RF-40 Excepción 2: Verificar que exista apertura hoy
         const cajaHoy = await cajaModel.getCajaHoy();
         if (!cajaHoy) {

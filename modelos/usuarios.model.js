@@ -116,7 +116,7 @@ const updateUsuario = async (id, data) => {
             id_rol
         } = data;
 
-        const result = await sql
+        const result = await sql 
             .request()
             .input('id', sql.Int, id)
             .input('nombre', sql.VarChar, nombre)

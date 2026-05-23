@@ -6,8 +6,16 @@ const http = require('http');
 require('dotenv').config();
 
 // rutas
-const usuarioRoutes = require('./routers/usuarios.route');
 const loginRoutes = require('./routers/login.routes');
+
+const usuarioRoutes = require('./routers/usuarios.route');
+const cajaRoutes = require('./routers/caja.routes');
+const gastosRoutes = require('./routers/gastos.routes');
+const inventarioRoutes = require('./routers/inventario.route');
+const productoRoutes = require('./routers/productos.route');
+const promocionesRoutes = require('./routers/promociones.route');
+const reportesRoutes = require('./routers/reportes.route');
+
 const mostradorRoutes = require('./routers/mostrador.routes');
 
 // websocket
@@ -40,8 +48,17 @@ app.use(cors({
 }));
 
 //------------------------------------------------ RUTAS ------------------------------------------------
-app.use(`${apiBasePath}/usuarios`, usuarioRoutes);
 app.use(`${apiBasePath}`, loginRoutes);
+
+app.use(`${apiBasePath}/usuarios`, usuarioRoutes);
+app.use(`${apiBasePath}/productos`, productoRoutes);
+app.use(`${apiBasePath}/caja`, cajaRoutes);
+app.use(`${apiBasePath}/gastos`, gastosRoutes);
+app.use(`${apiBasePath}/inventario`, inventarioRoutes);
+app.use(`${apiBasePath}/promociones`, productoRoutes);
+app.use(`${apiBasePath}/reportes`, reportesRoutes);
+
+
 app.use(`${apiBasePath}/mostrador`, mostradorRoutes);
 
 //------------------------------------------------ SERVER ------------------------------------------------

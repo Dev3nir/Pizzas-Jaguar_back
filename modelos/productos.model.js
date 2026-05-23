@@ -32,7 +32,7 @@ const getProductos = async () => {
 
 const getProductosById = async (id) => {
     try {
-        const result = await sql.Request().input('id', sql.Int, id).query(`
+        const result = await new sql.Request().input('id', sql.Int, id).query(`
             SELECT
                 C.id_catalogo,
                 C.nombre AS producto,

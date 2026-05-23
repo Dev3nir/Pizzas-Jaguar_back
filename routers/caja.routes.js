@@ -3,6 +3,9 @@
 const express = require('express');
 const router = express.Router();
 const cajaController = require('../controladores/caja.controller');
+// IMPORTAR middleware
+const { authenticateToken } = require('../middlewares/auth.middleware');
+const { roleAuthorization } = require('../middlewares/role.middleware');
 
 // Consultar estado de la caja de hoy
 router.get('/hoy', cajaController.getCajaHoy);
@@ -14,10 +17,14 @@ router.get('/estimado', cajaController.getMontoEstimado);
 // Consultar caja por ID
 router.get('/:id', cajaController.getCajaById);
 
+
+///////////////////////////// AL USAR EL MIDDLEWARE, se pone admin porque eso tiene el jwt basado en el model de login
 // Apertura de caja
-router.post('/abrir', cajaController.abrirCaja);
+router.post('/abrir', roleAuthorization(['Administrador']), cajaController.abrirCaja
+);
 
 // Cierre de caja
-router.put('/cerrar', cajaController.cerrarCaja);
+router.put('/cerrar', roleAuthorization(['Administrador']), cajaController.cerrarCaja
+);
 
 module.exports = router;
