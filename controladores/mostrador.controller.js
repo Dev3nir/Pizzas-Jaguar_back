@@ -99,3 +99,23 @@ exports.updatePedido = async (req, res) => {
         res.status(400).json({ error: error.message });
     }
 };
+exports.pagarPedido = async (req, res) => {
+    try {
+        const id = req.params.id;
+        
+        // --- CAMBIO AQUÍ ---
+        // Si req.body es un array, úsalo como los pagos. 
+        // Si es un objeto { "pagos": [...] }, usa req.body.pagos.
+        const pagos = Array.isArray(req.body) ? req.body : req.body.pagos;
+
+        if (!pagos) {
+            return res.status(400).json({ error: 'Formato de pagos inválido: se esperaba un array' });
+        }
+
+        const resultado = await modelMostrador.pagarPedido(id, pagos);
+        
+        res.json({ success: true, data: resultado });
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+};

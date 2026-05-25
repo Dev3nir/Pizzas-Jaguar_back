@@ -12,13 +12,12 @@ const getProductos = async () => {
 
                 P.id_producto,
                 P.tamano,
-                P.precio
+                P.precio,
+                P.activo
             FROM CATALOGO C
 
             JOIN PRODUCTO P
             ON C.id_catalogo = P.id_catalogo
-
-            WHERE P.activo = 1;
             
         `);
 
@@ -40,7 +39,9 @@ const getProductosById = async (id) => {
                 P.id_producto,
                 P.tamano,
                 P.precio,
-
+                P.activo,
+                
+                I.id_insumo,
                 I.nombre AS insumo,
                 DR.cantidad,
                 I.unidad
@@ -96,7 +97,9 @@ const getInsumos = async () => {
             SELECT
                 id_insumo,
                 nombre,
-                unidad
+                unidad,
+                costo_unitario,
+                extra
             FROM INSUMO
         `);
 
@@ -391,7 +394,7 @@ const updateProducto = async (id, data) => {
 
 const deleteProducto = async (id) => {
     try {
-        const result = await new sql.request().input('id', sql.Int, id).query(`
+        const result = await new sql.Request().input('id', sql.Int, id).query(`
             UPDATE PRODUCTO
             SET activo = 0
             WHERE id_producto = @id
@@ -402,6 +405,20 @@ const deleteProducto = async (id) => {
     }
 };
 
+const activarProducto = async (id) => {
+    try {
+        const result = await new sql.Request().input('id', sql.Int, id).query(`
+            UPDATE PRODUCTO
+            SET activo = 1
+            WHERE id_producto = @id
+        `);
+        return result.rowsAffected[0] > 0;
+    } catch (error) {
+        throw error;
+    }
+};
+
+
 
 module.exports = {
     getProductos,
@@ -410,7 +427,9 @@ module.exports = {
     getInsumos,
     createProductoCompleto,
     updateProducto,
-    deleteProducto
+    deleteProducto,
+    activarProducto
+
 
 };
 

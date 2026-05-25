@@ -29,6 +29,63 @@ const getPromociones = async () => {
     }
 };
 
+const getPromocionesProducto = async () => {
+    try {
+
+        const result = await sql.query(`
+            SELECT
+                P.id_promocion,
+                P.nombre AS nombre_promocion,
+                P.valor,
+                P.fecha_inicio,
+                P.fecha_fin,
+                P.estado,
+
+                PP.id_producto AS id_producto_aplicable,
+
+                TD.id_tipo_descuento,
+                TD.nombre AS tipo_descuento
+
+            FROM PROMOCION P
+
+            JOIN TIPO_DESCUENTO TD
+                ON P.id_tipo_descuento = TD.id_tipo_descuento
+
+            JOIN PRODUCTO_PROMOCION PP
+                ON P.id_promocion = PP.id_promocion
+        `);
+
+        const promocionesMap = {};
+
+        result.recordset.forEach(row => {
+
+            if (!promocionesMap[row.id_promocion]) {
+
+                promocionesMap[row.id_promocion] = {
+                    id_promocion: row.id_promocion,
+                    nombre_promocion: row.nombre_promocion,
+                    valor: row.valor,
+                    fecha_inicio: row.fecha_inicio,
+                    fecha_fin: row.fecha_fin,
+                    estado: row.estado,
+                    id_productos_aplicables: [],
+                    id_tipo_descuento: row.id_tipo_descuento,
+                    tipo_descuento: row.tipo_descuento
+                };
+            }
+
+            promocionesMap[row.id_promocion]
+                .id_productos_aplicables
+                .push(row.id_producto_aplicable);
+        });
+
+        return Object.values(promocionesMap);
+
+    } catch (error) {
+        throw error;
+    }
+};
+
 // Obtener promoción por ID
 const getPromocionById = async (id) => {
     try {
@@ -200,5 +257,6 @@ module.exports = {
     getPromocionById,
     createPromocion,
     updatePromocion,
-    desactivarPromocion
+    desactivarPromocion,
+    getPromocionesProducto
 };

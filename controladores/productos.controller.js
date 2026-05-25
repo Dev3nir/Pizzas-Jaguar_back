@@ -230,6 +230,33 @@ const deleteProducto = async (req, res) => {
     }
 };
 
+// Eliminar producto
+const activarProducto = async (req, res) => {
+    try {
+        const id = parseInt(req.params.id);
+
+         // Validar ID
+        if (isNaN(id) || id <= 0) {
+            return res.status(400).json({
+                error: 'ID inválido'
+            });
+        }
+
+        const activado = await productosModel.activarProducto(id);
+
+         // Verificar existencia
+        if (!activado) {
+            return res.status(404).json({
+                error: 'Producto no encontrado'
+            });
+        }
+
+        res.status(200).json({ message: 'Producto activado correctamente' });
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+};
+
 
 
 /////////////
@@ -240,7 +267,9 @@ module.exports = {
     getInsumos,
     createProducto,
     updateProducto,
-    deleteProducto
+    deleteProducto,
+    activarProducto
+
 };
 
 
