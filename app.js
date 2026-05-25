@@ -55,7 +55,7 @@ app.use(`${apiBasePath}/productos`, productoRoutes);
 app.use(`${apiBasePath}/caja`, cajaRoutes);
 app.use(`${apiBasePath}/gastos`, gastosRoutes);
 app.use(`${apiBasePath}/inventario`, inventarioRoutes);
-app.use(`${apiBasePath}/promociones`, productoRoutes);
+app.use(`${apiBasePath}/promociones`, promocionesRoutes);
 app.use(`${apiBasePath}/reportes`, reportesRoutes);
 
 

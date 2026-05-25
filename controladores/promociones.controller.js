@@ -107,10 +107,27 @@ const desactivarPromocion = async (req, res) => {
     }
 };
 
+
+
+const getPromocionesProducto = async (req, res) => {
+    try {
+        
+        const promociones = await promocionesModel.getPromocionesProducto();
+        res.status(200).json(promociones);
+    } catch (error) {
+        res.status(500).json({
+            error: error.message
+        });
+    }   
+};
+
+
+
 module.exports = {
     getPromociones,
     getPromocionById,
     createPromocion,
     updatePromocion,
-    desactivarPromocion
+    desactivarPromocion,
+    getPromocionesProducto
 };

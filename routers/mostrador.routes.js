@@ -9,7 +9,7 @@ router.get('/pedidos/estadisticas', mostradorController.getEstadisticas);
 router.get('/pedidos/:id', mostradorController.getPedidoById);
 router.put('/pedidos/:id/cancelar', mostradorController.cancelarPedido);
 router.put('/pedidos/:id', mostradorController.updatePedido);
-
+router.post('/pedidos/:id/pagar', mostradorController.pagarPedido);
 
 
 module.exports = router;
