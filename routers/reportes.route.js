@@ -41,4 +41,23 @@ router.get(
     reportesController.getTotalGastos
 );
 
+router.get(
+    '/mermas/estadisticas',
+    reportesController.getReporteMermas
+
+);
+
+router.get(
+    '/pedidos/estadisticas',
+    reportesController.getReportePedidosEstadistico
+);
+
+router.get(
+    '/ventas/estadisticas',
+    reportesController.getReporteVentasEstadistico
+);
+
+router.get('/gastos-estadistico', reportesController.getReporteGastosEstadistico);
+
+
 module.exports = router;
