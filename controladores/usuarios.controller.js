@@ -12,12 +12,10 @@ const getUsuarios = async (req, res) => {
     }
 };
 
-// Obtener usuario por ID
 const getUsuarioById = async (req, res) => {
     try {
         const id = parseInt(req.params.id);
 
-        // Validar ID
         if (isNaN(id) || id <= 0) {
             return res.status(400).json({
                 error: 'ID inválido'
@@ -26,13 +24,14 @@ const getUsuarioById = async (req, res) => {
 
         const usuario = await usuariosModel.getUsuarioById(id);
 
-         // Verificar existencia
         if (!usuario) {
             return res.status(404).json({ error: 'Usuario no encontrado' });
         }
 
+        console.log('Usuario encontrado:', usuario); 
         res.status(200).json(usuario);
     } catch (error) {
+        console.error('Error en getUsuarioById:', error);
         res.status(500).json({ error: error.message });
     }
 };
