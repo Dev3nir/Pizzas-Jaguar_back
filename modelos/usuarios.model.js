@@ -29,31 +29,23 @@ const getUsuarios = async () => {
 
 
 // Obtener usuario por ID
+// Obtener usuario por ID
 const getUsuarioById = async (id) => {
     try {
-        const result = await sql.Request().input('id',sql.Int, id).query(`
+        const result = await new sql.Request().input('id', sql.Int, id).query(`
             SELECT
-            U.id_usuario,
-            U.nombre,
-            U.nombreUsuario,
-            U.estado,
-            R.id_rol,
-            R.nombre AS rol
-
+                U.id_usuario,
+                U.nombre,
+                U.nombreUsuario,
+                U.estado,
+                R.id_rol,
+                R.nombre AS rol
             FROM USUARIO U
-            JOIN ROL R
-            ON U.id_rol = R.id_rol
-
-            WHERE U.id_usuario = @id,
-            U.nombre,
-            U.nombreUsuario,
-            U.estado,
-            U.contrasena,
-
+            JOIN ROL R ON U.id_rol = R.id_rol
+            WHERE U.id_usuario = @id
         `);
 
         return result.recordset[0];
-
     } catch (error) {
         throw error;
     }
@@ -62,45 +54,19 @@ const getUsuarioById = async (id) => {
 // Crear usuario
 const createUsuario = async (data) => {
     try {
-        const {
-            nombre,
-            nombreUsuario,
-            contrasena,
-            id_rol
-        } = data;
+        const { nombre, nombreUsuario, contrasena, id_rol } = data;
 
-        const result = await sql
-            .request()
+        const result = await new sql.Request()  // ← Con new
             .input('nombre', sql.VarChar, nombre)
             .input('nombreUsuario', sql.VarChar, nombreUsuario)
             .input('contrasena', sql.VarChar, contrasena)
             .input('id_rol', sql.Int, id_rol)
-
             .query(`
-                INSERT INTO USUARIO (
-                    nombre,
-                    nombreUsuario,
-                    contrasena,
-                    id_rol
-                )
-
-                OUTPUT
-                INSERTED.id_usuario,
-                INSERTED.nombre,
-                INSERTED.nombreUsuario,
-                INSERTED.estado,
-                INSERTED.id_rol
-
-            VALUES (
-                @nombre,
-                @nombreUsuario,
-                @contrasena,
-                @id_rol
-            )
+                INSERT INTO USUARIO (nombre, nombreUsuario, contrasena, id_rol)
+                OUTPUT INSERTED.id_usuario, INSERTED.nombre, INSERTED.nombreUsuario, INSERTED.estado, INSERTED.id_rol
+                VALUES (@nombre, @nombreUsuario, @contrasena, @id_rol)
             `);
-
         return result.recordset[0];
-
     } catch (error) {
         throw error;
     }
@@ -116,8 +82,7 @@ const updateUsuario = async (id, data) => {
             id_rol
         } = data;
 
-        const result = await sql 
-            .request()
+        const result = await new sql.Request()
             .input('id', sql.Int, id)
             .input('nombre', sql.VarChar, nombre)
             .input('nombreUsuario', sql.VarChar, nombreUsuario)
@@ -153,8 +118,7 @@ const updateUsuario = async (id, data) => {
 // Eliminar usuario
 const deleteUsuario = async (id) => {
     try {
-        const result = await sql
-            .request()
+        const result = await new sql.Request()
             .input('id', sql.Int, id)
             .query(`
                 DELETE FROM USUARIO
@@ -198,8 +162,7 @@ const getRoles = async () => {
 // Validar si existe username
 const existeUsername = async (nombreUsuario) => {
     try {
-        const result = await sql
-            .request()
+        const result = await new sql.Request()
             .input('nombreUsuario', sql.VarChar, nombreUsuario)
             .query(`
                 SELECT 1

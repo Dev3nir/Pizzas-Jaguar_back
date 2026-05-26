@@ -5,11 +5,11 @@ const router = express.Router();
 
 const usuariosController = require('../controladores/usuarios.controller');
 
-// consultar usuarios
-router.get('/', usuariosController.getUsuarios);
-
 // para consultar los roles que hay y cargarlos en el combobox del front
 router.get('/roles', usuariosController.getRoles);
+
+// consultar usuarios
+router.get('/', usuariosController.getUsuarios);
 
 // consultar usuario específico
 router.get('/:id', usuariosController.getUsuarioById);
