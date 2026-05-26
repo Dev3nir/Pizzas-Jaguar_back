@@ -1,7 +1,7 @@
 // usuarios.model.js
 
 const { sql } = require('../config/db.config');
-
+const bcrypt = require('bcrypt');
 // Obtener todos los usuarios
 const getUsuarios = async () => {
     try {
@@ -53,13 +53,15 @@ const getUsuarioById = async (id) => {
 
 // Crear usuario
 const createUsuario = async (data) => {
+    const saltRounds = 10;
     try {
         const { nombre, nombreUsuario, contrasena, id_rol } = data;
-
+        //generar hash de contraseña
+        const hashedPassword = await bcrypt.hash(contrasena, saltRounds);
         const result = await new sql.Request()  // ← Con new
             .input('nombre', sql.VarChar, nombre)
             .input('nombreUsuario', sql.VarChar, nombreUsuario)
-            .input('contrasena', sql.VarChar, contrasena)
+            .input('contrasena', sql.VarChar, hashedPassword)
             .input('id_rol', sql.Int, id_rol)
             .query(`
                 INSERT INTO USUARIO (nombre, nombreUsuario, contrasena, id_rol)

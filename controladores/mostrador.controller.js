@@ -2,27 +2,62 @@ const modelMostrador = require('../modelos/mostrador.model');
 const { getIO } = require('../utils/websocket');
 
 //crear un nuevo pedido
+//crear un nuevo pedido
 exports.addPedido = async (req, res) => {
     try {
         const data = req.body;
+        
+        // 1. Crear el pedido en la BD
         const newPedido = await modelMostrador.createPedido(data);
-        const detalleCompleto = await modelMostrador.getPedidoById(newPedido.id_pedido);
+
+        // 2. Mapear el ID del tipo de pedido a texto
+        let tipoPedidoTexto = "Mostrador";
+        if (data.id_tipo_pedido === 2) tipoPedidoTexto = "Domicilio";
+        else if (data.id_tipo_pedido === 3) tipoPedidoTexto = "Rappi";
+        else if (data.id_tipo_pedido === 4) tipoPedidoTexto = "Salon";
+
+        // 3. Estructurar los productos combinando req.body y los IDs generados
+        const productosEstructurados = data.productos.map((prod, index) => ({
+            id_detalle: newPedido.detalles[index]?.id_detalle || null,
+            cantidad: prod.cantidad,
+            orilla: prod.orilla_queso || false,
+            id_producto: prod.id_producto,
+            nombre: prod.nombre || "Desconocido", // Asume que el frontend envía el nombre en req.body
+            tamano: prod.tamano || "",            // Asume que el frontend envía el tamaño
+            precio: prod.precio || 0,
+            extras: prod.extras || [],
+            orilla_queso: prod.orilla_queso || false
+        }));
+
+        // 4. Construir la estructura EXACTA del GET (Array con 1 objeto)
+        const estructuraGetPedidos = [
+            {
+                id_pedido: newPedido.id_pedido,
+                folio: newPedido.folio,
+                hora_inicio: new Date().toISOString(),
+                cliente_nombre: data.detalle_cliente?.nombre || "Sin nombre",
+                tipo_pedido: tipoPedidoTexto,
+                estado_pedido: "Pendiente",
+                productos: productosEstructurados
+            }
+        ];
+
+        // 5. Emitir por WebSocket
         try {
             const io = getIO();
             const payloadEmision = {
                 event: "pedido",
                 emisor: "mostrador",
-                data: {
-                    ...detalleCompleto, 
-                    estado: "Pendiente"
-                },
+                data: estructuraGetPedidos, // Aquí inyectamos el array formateado
                 destino: "cocina"
             };
+            
             io.to('sala-pedidos').emit('nuevo-pedido', payloadEmision);
-            console.log(`Pedido ${newPedido.id_pedido} emitido a cocina con éxito.`);
+            console.log(`Pedido ${newPedido.id_pedido} emitido a cocina con la estructura requerida.`);
         } catch (wsError) {
             console.error('Error al emitir por WebSocket:', wsError.message);
         }
+
         res.status(201).json(newPedido);
     } catch (error) {
         res.status(400).json({ error: error.message });

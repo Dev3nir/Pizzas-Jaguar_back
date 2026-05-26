@@ -62,6 +62,6 @@ app.use(`${apiBasePath}/reportes`, reportesRoutes);
 app.use(`${apiBasePath}/mostrador`, mostradorRoutes);
 app.use(`${apiBasePath}/cocina`, cocinaRoutes);
 //------------------------------------------------ SERVER ------------------------------------------------
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
     console.log('API escuchando en el puerto ' + PORT);
 });
