@@ -646,6 +646,33 @@ const createPedido = async (pedido) => {
             });
         }
 
+        const detallesCompletos = [];
+
+for (let i = 0; i < pedido.productos.length; i++) {
+    const productoPedido = pedido.productos[i];
+    const idDetalle = detallesInsertados[i].id_detalle;
+    
+    // Obtener información completa del producto
+    const productoInfo = await new sql.Request(transaction)
+        .input('id_producto', sql.Int, productoPedido.id_producto)
+        .query(`
+            SELECT nombre, tamano, precio 
+            FROM PRODUCTO 
+            WHERE id_producto = @id_producto
+        `);
+    
+    detallesCompletos.push({
+        id_detalle: idDetalle,
+        cantidad: productoPedido.cantidad,
+        orilla: productoPedido.orilla_queso || false,
+        id_producto: productoPedido.id_producto,
+        nombre: productoInfo.recordset[0]?.nombre || "Desconocido",
+        tamano: productoInfo.recordset[0]?.tamano || "",
+        precio_base: productoInfo.recordset[0]?.precio || 0,
+        extras: productoPedido.extras || []
+    });
+}
+
         validarInventarioGlobal(inventarioGlobal);
         await descontarInventarioGlobal(transaction, inventarioGlobal);
 
@@ -666,7 +693,8 @@ const createPedido = async (pedido) => {
             id_pedido: idPedido,
             folio: folioGenerado,
             total: totalPedido,
-            inventario_utilizado: inventarioGlobal
+            inventario_utilizado: inventarioGlobal,
+            detalles: detallesCompletos
         };
 
     } catch (error) {
