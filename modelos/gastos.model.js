@@ -1,5 +1,4 @@
 // gastos.model.js
-
 const { sql } = require('../config/db.config');
 
 // Obtener todos los gastos
@@ -16,16 +15,12 @@ const getGastos = async () => {
                 G.id_caja,
                 CG.id_categoria_gasto,
                 CG.nombre AS categoria
-
             FROM GASTO G
             JOIN CATEGORIA_GASTO CG
             ON G.id_categoria = CG.id_categoria_gasto
-
             ORDER BY G.fecha DESC
         `);
-
         return result.recordset;
-
     } catch (error) {
         throw error;
     }
@@ -34,8 +29,8 @@ const getGastos = async () => {
 // Obtener gasto por ID
 const getGastoById = async (id) => {
     try {
-        const result = await sql
-            .request()
+        const request = new sql.Request();
+        const result = await request
             .input('id', sql.Int, id)
             .query(`
                 SELECT
@@ -48,16 +43,12 @@ const getGastoById = async (id) => {
                     G.id_caja,
                     CG.id_categoria_gasto,
                     CG.nombre AS categoria
-
                 FROM GASTO G
                 JOIN CATEGORIA_GASTO CG
                 ON G.id_categoria = CG.id_categoria_gasto
-
                 WHERE G.id_gasto = @id
             `);
-
         return result.recordset[0];
-
     } catch (error) {
         throw error;
     }
@@ -75,8 +66,8 @@ const createGasto = async (data) => {
             id_categoria
         } = data;
 
-        const result = await sql
-            .request()
+        const request = new sql.Request();
+        const result = await request
             .input('concepto', sql.VarChar, concepto)
             .input('monto', sql.Decimal(10, 2), monto)
             .input('comentarios', sql.VarChar, comentarios || null)
@@ -92,7 +83,6 @@ const createGasto = async (data) => {
                     id_caja,
                     id_categoria
                 )
-
                 OUTPUT
                     INSERTED.id_gasto,
                     INSERTED.concepto,
@@ -102,7 +92,6 @@ const createGasto = async (data) => {
                     INSERTED.factura,
                     INSERTED.id_caja,
                     INSERTED.id_categoria
-
                 VALUES (
                     @concepto,
                     @monto,
@@ -112,9 +101,7 @@ const createGasto = async (data) => {
                     @id_categoria
                 )
             `);
-
         return result.recordset[0];
-
     } catch (error) {
         throw error;
     }
@@ -132,8 +119,8 @@ const updateGasto = async (id, data) => {
             id_categoria
         } = data;
 
-        const result = await sql
-            .request()
+        const request = new sql.Request();
+        const result = await request
             .input('id', sql.Int, id)
             .input('concepto', sql.VarChar, concepto)
             .input('monto', sql.Decimal(10, 2), monto)
@@ -143,15 +130,13 @@ const updateGasto = async (id, data) => {
             .input('id_categoria', sql.Int, id_categoria)
             .query(`
                 UPDATE GASTO
-
                 SET
-                    concepto    = @concepto,
+                    concepto     = @concepto,
                     monto       = @monto,
                     comentarios = @comentarios,
                     factura     = @factura,
                     id_caja     = @id_caja,
                     id_categoria = @id_categoria
-
                 OUTPUT
                     INSERTED.id_gasto,
                     INSERTED.concepto,
@@ -161,12 +146,9 @@ const updateGasto = async (id, data) => {
                     INSERTED.factura,
                     INSERTED.id_caja,
                     INSERTED.id_categoria
-
                 WHERE id_gasto = @id
             `);
-
         return result.recordset[0];
-
     } catch (error) {
         throw error;
     }
@@ -175,22 +157,18 @@ const updateGasto = async (id, data) => {
 // Eliminar gasto
 const deleteGasto = async (id) => {
     try {
-        const result = await sql
-            .request()
+        const request = new sql.Request();
+        const result = await request
             .input('id', sql.Int, id)
             .query(`
                 DELETE FROM GASTO
-
                 OUTPUT
                     DELETED.id_gasto,
                     DELETED.concepto,
                     DELETED.monto
-
                 WHERE id_gasto = @id
             `);
-
         return result.recordset[0];
-
     } catch (error) {
         throw error;
     }
@@ -204,12 +182,9 @@ const getCategorias = async () => {
                 id_categoria_gasto,
                 nombre,
                 descripcion
-
             FROM CATEGORIA_GASTO
         `);
-
         return result.recordset;
-
     } catch (error) {
         throw error;
     }

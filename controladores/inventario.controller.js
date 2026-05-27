@@ -45,6 +45,7 @@ const getInsumoById = async (req, res) => {
 // Crear insumo
 const createInsumo = async (req, res) => {
     try {
+                console.log('Body completo:', req.body);
         const {
             nombre,
             cantidad,
@@ -320,6 +321,8 @@ const createMerma = async (req, res) => {
         });
     }
 };
+
+
 
 module.exports = {
     // Insumos

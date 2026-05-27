@@ -50,14 +50,11 @@ const getPromocionById = async (req, res) => {
 const createPromocion = async (req, res) => {
 
     try {
-
-        const nuevaPromocion =
-            await promocionesModel.createPromocion(req.body);
+        const nuevaPromocion = await promocionesModel.createPromocion(req.body);
 
         res.status(201).json(nuevaPromocion);
 
     } catch (error) {
-
         res.status(500).json({
             error: error.message
         });
@@ -90,7 +87,6 @@ const updatePromocion = async (req, res) => {
 const desactivarPromocion = async (req, res) => {
 
     try {
-
         const id = parseInt(req.params.id);
 
         const promocion =
@@ -99,7 +95,26 @@ const desactivarPromocion = async (req, res) => {
         res.status(200).json(promocion);
 
     } catch (error) {
+        console.error('Error en desactivarPromocion:', error);
+        res.status(500).json({
+            error: error.message
+        });
 
+    }
+};
+
+const activarPromocion = async (req, res) => {
+
+    try {
+        const id = parseInt(req.params.id);
+
+        const promocion =
+            await promocionesModel.activarPromocion(id);
+
+        res.status(200).json(promocion);
+
+    } catch (error) {
+        console.error('Error en activarPromocion:', error);
         res.status(500).json({
             error: error.message
         });
@@ -129,5 +144,6 @@ module.exports = {
     createPromocion,
     updatePromocion,
     desactivarPromocion,
+    activarPromocion,
     getPromocionesProducto
 };

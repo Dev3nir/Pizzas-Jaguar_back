@@ -26,8 +26,11 @@ router.put('/:id',
 promocionesController.updatePromocion);
 
 // Desactivar promoción
-router.patch('/:id/desactivar',
+router.put('/:id/desactivar',
 promocionesController.desactivarPromocion);
+
+router.put('/:id/activar',
+promocionesController.activarPromocion);
 
 
 

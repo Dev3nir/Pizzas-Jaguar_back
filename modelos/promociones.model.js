@@ -90,8 +90,7 @@ const getPromocionesProducto = async () => {
 const getPromocionById = async (id) => {
     try {
 
-        const result = await sql
-            .request()
+        const result = await new sql.Request()
             .input('id', sql.Int, id)
 
             .query(`
@@ -122,53 +121,70 @@ const getPromocionById = async (id) => {
 };
 
 // Crear promoción
+// Crear promoción
 const createPromocion = async (data) => {
-
     try {
-
         const {
             nombre,
             valor,
             fecha_inicio,
             fecha_fin,
             estado,
-            id_tipo_descuento
+            id_tipo_descuento,
+            id_producto  // <-- AGREGAR ESTE PARÁMETRO
         } = data;
 
-        const result = await sql
-            .request()
+        // Iniciar transacción
+        const transaction = new sql.Transaction();
+        await transaction.begin();
 
-            .input('nombre', sql.VarChar, nombre)
-            .input('valor', sql.Decimal(10,2), valor)
-            .input('fecha_inicio', sql.Date, fecha_inicio)
-            .input('fecha_fin', sql.Date, fecha_fin)
-            .input('estado', sql.Bit, estado)
-            .input('id_tipo_descuento', sql.Int, id_tipo_descuento)
+        try {
+            // Insertar en PROMOCION
+            const result = await transaction.request()
+                .input('nombre', sql.VarChar, nombre)
+                .input('valor', sql.Decimal(10,2), valor)
+                .input('fecha_inicio', sql.Date, fecha_inicio)
+                .input('fecha_fin', sql.Date, fecha_fin)
+                .input('estado', sql.Bit, estado)
+                .input('id_tipo_descuento', sql.Int, id_tipo_descuento)
+                .query(`
+                    INSERT INTO PROMOCION (
+                        nombre,
+                        valor,
+                        fecha_inicio,
+                        fecha_fin,
+                        estado,
+                        id_tipo_descuento
+                    )
+                    OUTPUT INSERTED.id_promocion
+                    VALUES (
+                        @nombre,
+                        @valor,
+                        @fecha_inicio,
+                        @fecha_fin,
+                        @estado,
+                        @id_tipo_descuento
+                    )
+                `);
 
-            .query(`
-                INSERT INTO PROMOCION (
-                    nombre,
-                    valor,
-                    fecha_inicio,
-                    fecha_fin,
-                    estado,
-                    id_tipo_descuento
-                )
+            const id_promocion = result.recordset[0].id_promocion;
 
-                OUTPUT
-                    INSERTED.*
+            // Insertar en PRODUCTO_PROMOCION
+            await transaction.request()
+                .input('id_promocion', sql.Int, id_promocion)
+                .input('id_producto', sql.Int, id_producto)
+                .query(`
+                    INSERT INTO PRODUCTO_PROMOCION (id_promocion, id_producto)
+                    VALUES (@id_promocion, @id_producto)
+                `);
 
-                VALUES (
-                    @nombre,
-                    @valor,
-                    @fecha_inicio,
-                    @fecha_fin,
-                    @estado,
-                    @id_tipo_descuento
-                )
-            `);
+            await transaction.commit();
+            return { id_promocion, ...data };
 
-        return result.recordset[0];
+        } catch (error) {
+            await transaction.rollback();
+            throw error;
+        }
 
     } catch (error) {
         throw error;
@@ -176,61 +192,75 @@ const createPromocion = async (data) => {
 };
 
 // Actualizar promoción
+// Actualizar promoción
 const updatePromocion = async (id, data) => {
-
     try {
-
         const {
             nombre,
             valor,
             fecha_inicio,
             fecha_fin,
             estado,
-            id_tipo_descuento
+            id_tipo_descuento,
+            id_producto
         } = data;
 
-        const result = await sql
-            .request()
+        const transaction = new sql.Transaction();
+        await transaction.begin();
 
-            .input('id', sql.Int, id)
-            .input('nombre', sql.VarChar, nombre)
-            .input('valor', sql.Decimal(10,2), valor)
-            .input('fecha_inicio', sql.Date, fecha_inicio)
-            .input('fecha_fin', sql.Date, fecha_fin)
-            .input('estado', sql.Bit, estado)
-            .input('id_tipo_descuento', sql.Int, id_tipo_descuento)
+        try {
+            // Actualizar PROMOCION
+            await transaction.request()
+                .input('id', sql.Int, id)
+                .input('nombre', sql.VarChar, nombre)
+                .input('valor', sql.Decimal(10,2), valor)
+                .input('fecha_inicio', sql.Date, fecha_inicio)
+                .input('fecha_fin', sql.Date, fecha_fin)
+                .input('estado', sql.Bit, estado)
+                .input('id_tipo_descuento', sql.Int, id_tipo_descuento)
+                .query(`
+                    UPDATE PROMOCION
+                    SET
+                        nombre = @nombre,
+                        valor = @valor,
+                        fecha_inicio = @fecha_inicio,
+                        fecha_fin = @fecha_fin,
+                        estado = @estado,
+                        id_tipo_descuento = @id_tipo_descuento
+                    WHERE id_promocion = @id
+                `);
 
-            .query(`
-                UPDATE PROMOCION
+            // Actualizar PRODUCTO_PROMOCION (eliminar y volver a insertar)
+            await transaction.request()
+                .input('id_promocion', sql.Int, id)
+                .query(`DELETE FROM PRODUCTO_PROMOCION WHERE id_promocion = @id_promocion`);
 
-                SET
-                    nombre = @nombre,
-                    valor = @valor,
-                    fecha_inicio = @fecha_inicio,
-                    fecha_fin = @fecha_fin,
-                    estado = @estado,
-                    id_tipo_descuento = @id_tipo_descuento
+            await transaction.request()
+                .input('id_promocion', sql.Int, id)
+                .input('id_producto', sql.Int, id_producto)
+                .query(`
+                    INSERT INTO PRODUCTO_PROMOCION (id_promocion, id_producto)
+                    VALUES (@id_promocion, @id_producto)
+                `);
 
-                OUTPUT
-                    INSERTED.*
+            await transaction.commit();
+            return { id_promocion: id, ...data };
 
-                WHERE id_promocion = @id
-            `);
-
-        return result.recordset[0];
+        } catch (error) {
+            await transaction.rollback();
+            throw error;
+        }
 
     } catch (error) {
         throw error;
     }
 };
-
 // Desactivar promoción
 const desactivarPromocion = async (id) => {
 
     try {
 
-        const result = await sql
-            .request()
+        const result = await new sql.Request()
 
             .input('id', sql.Int, id)
 
@@ -252,11 +282,40 @@ const desactivarPromocion = async (id) => {
     }
 };
 
+
+// activar promoción
+const activarPromocion = async (id) => {
+
+    try {
+
+        const result = await new sql.Request()
+
+            .input('id', sql.Int, id)
+
+            .query(`
+                UPDATE PROMOCION
+
+                SET estado = 1
+
+                OUTPUT
+                    INSERTED.*
+
+                WHERE id_promocion = @id
+            `);
+
+        return result.recordset[0];
+
+    } catch (error) {
+        throw error;
+    }
+};
+
 module.exports = {
     getPromociones,
     getPromocionById,
     createPromocion,
     updatePromocion,
     desactivarPromocion,
+    activarPromocion,
     getPromocionesProducto
 };

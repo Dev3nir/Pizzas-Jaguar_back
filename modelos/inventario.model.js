@@ -12,6 +12,7 @@ const getInsumos = async () => {
                 I.cantidad,
                 I.unidad,
                 I.nivel_minimo,
+                I.costo_unitario,
                 CASE
                     WHEN I.cantidad <= I.nivel_minimo THEN 1
                     ELSE 0
@@ -67,8 +68,7 @@ const createInsumo = async (data) => {
             costo_unitario
         } = data;
 
-        const result = await sql
-            .request()
+        const result = await new sql.Request()
             .input('nombre', sql.VarChar, nombre)
             .input('cantidad', sql.Decimal(10, 2), cantidad)
             .input('unidad', sql.VarChar, unidad)
@@ -88,7 +88,8 @@ const createInsumo = async (data) => {
                     INSERTED.nombre,
                     INSERTED.cantidad,
                     INSERTED.unidad,
-                    INSERTED.nivel_minimo
+                    INSERTED.nivel_minimo,
+                    INSERTED.costo_unitario
 
                 VALUES (
                     @nombre,
@@ -117,8 +118,7 @@ const updateInsumo = async (id, data) => {
             costo_unitario
         } = data;
 
-        const result = await sql
-            .request()
+        const result = await new sql.Request()
             .input('id', sql.Int, id)
             .input('nombre', sql.VarChar, nombre)
             .input('cantidad', sql.Decimal(10, 2), cantidad)
@@ -154,8 +154,7 @@ const updateInsumo = async (id, data) => {
 // Eliminar insumo
 const deleteInsumo = async (id) => {
     try {
-        const result = await sql
-            .request()
+        const result = await new sql.Request()
             .input('id', sql.Int, id)
             .query(`
                 DELETE FROM INSUMO
@@ -202,8 +201,7 @@ const getAlertasInsumos = async () => {
 // Validar si existe un insumo por nombre
 const existeInsumo = async (nombre) => {
     try {
-        const result = await sql
-            .request()
+        const result = await new sql.Request()
             .input('nombre', sql.VarChar, nombre)
             .query(`
                 SELECT 1
@@ -221,8 +219,7 @@ const existeInsumo = async (nombre) => {
 // Validar si un insumo está en uso en recetas
 const insumoEnUso = async (id) => {
     try {
-        const result = await sql
-            .request()
+        const result = await new sql.Request()
             .input('id', sql.Int, id)
             .query(`
                 SELECT 1
@@ -291,8 +288,7 @@ const getTiposMerma = async () => {
 // Obtener cantidad disponible de un insumo
 const getCantidadDisponible = async (id_insumo) => {
     try {
-        const result = await sql
-            .request()
+        const result = await new sql.Request()
             .input('id_insumo', sql.Int, id_insumo)
             .query(`
                 SELECT cantidad
@@ -314,8 +310,7 @@ const getCantidadDisponible = async (id_insumo) => {
 // Descontar inventario por merma
 const descontarInventario = async (id_insumo, cantidad) => {
     try {
-        const result = await sql
-            .request()
+        const result = await new sql.Request()
             .input('id_insumo', sql.Int, id_insumo)
             .input('cantidad', sql.Decimal(10, 2), cantidad)
             .query(`
@@ -349,8 +344,7 @@ const createMerma = async (data) => {
             comentarios
         } = data;
 
-        const result = await sql
-            .request()
+        const result = await new sql.Request()
             .input('id_insumo', sql.Int, id_insumo)
             .input('cantidad', sql.Decimal(10, 2), cantidad)
             .input('id_tipo_merma', sql.Int, id_tipo_merma)

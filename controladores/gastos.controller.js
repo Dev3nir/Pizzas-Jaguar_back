@@ -41,11 +41,6 @@ const getGastoById = async (req, res) => {
 const createGasto = async (req, res) => {
     try {
 
-        // Verificar rol de administrador
-        if (!req.usuario || req.usuario.id_rol !== 1) {
-            return res.status(403).json({ error: 'No tienes permisos suficientes para realizar esta operación' });
-        }
-
         const {
             concepto,
             monto,
@@ -109,10 +104,6 @@ const createGasto = async (req, res) => {
 const updateGasto = async (req, res) => {
     try {
 
-        // Verificar rol de administrador
-        if (!req.usuario || req.usuario.id_rol !== 1) {
-            return res.status(403).json({ error: 'No tienes permisos suficientes para realizar esta operación' });
-        }
 
         const id = parseInt(req.params.id);
 
@@ -192,11 +183,6 @@ const updateGasto = async (req, res) => {
 // Eliminar gasto
 const deleteGasto = async (req, res) => {
     try {
-
-        // Verificar rol de administrador
-        if (!req.usuario || req.usuario.id_rol !== 1) {
-            return res.status(403).json({ error: 'No tienes permisos suficientes para realizar esta operación' });
-        }
 
         const id = parseInt(req.params.id);
 

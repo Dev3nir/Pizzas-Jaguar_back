@@ -5,8 +5,9 @@ const { sql } = require('../config/db.config');
 // Obtener el registro de caja de la jornada actual
 const getCajaHoy = async () => {
     try {
-        const result = await sql
-            .request()
+        // CORRECCIÓN: Se cambió .request() encadenado por la instancia 'new sql.Request()'
+        const request = new sql.Request();
+        const result = await request
             .query(`
                 SELECT
                     C.id_caja,
@@ -15,11 +16,9 @@ const getCajaHoy = async () => {
                     C.montoFinal,
                     U.id_usuario,
                     U.nombre AS usuario
-
                 FROM CAJA C
                 JOIN USUARIO U
                 ON C.id_usuario = U.id_usuario
-
                 WHERE C.fecha = CAST(GETDATE() AS DATE)
             `);
 
@@ -33,8 +32,9 @@ const getCajaHoy = async () => {
 // Obtener caja por ID
 const getCajaById = async (id) => {
     try {
-        const result = await sql
-            .request()
+        // CORRECCIÓN: Se cambió .request() encadenado por la instancia 'new sql.Request()'
+        const request = new sql.Request();
+        const result = await request
             .input('id', sql.Int, id)
             .query(`
                 SELECT
@@ -44,11 +44,9 @@ const getCajaById = async (id) => {
                     C.montoFinal,
                     U.id_usuario,
                     U.nombre AS usuario
-
                 FROM CAJA C
                 JOIN USUARIO U
                 ON C.id_usuario = U.id_usuario
-
                 WHERE C.id_caja = @id
             `);
 
@@ -62,8 +60,9 @@ const getCajaById = async (id) => {
 // Registrar apertura de caja
 const abrirCaja = async (montoInicial, id_usuario) => {
     try {
-        const result = await sql
-            .request()
+        // CORRECCIÓN: Se limpió la instanciación de 'new sql.Request()' y se arregló la sintaxis del INSERT-OUTPUT
+        const request = new sql.Request();
+        const result = await request
             .input('montoInicial', sql.Decimal(10, 2), montoInicial)
             .input('id_usuario', sql.Int, id_usuario)
             .query(`
@@ -71,13 +70,11 @@ const abrirCaja = async (montoInicial, id_usuario) => {
                     montoInicial,
                     id_usuario
                 )
-
                 OUTPUT
                     INSERTED.id_caja,
                     INSERTED.fecha,
                     INSERTED.montoInicial,
                     INSERTED.id_usuario
-
                 VALUES (
                     @montoInicial,
                     @id_usuario
@@ -95,8 +92,9 @@ const abrirCaja = async (montoInicial, id_usuario) => {
 // montoInicial + total de ventas del día - gastos pagados con caja
 const getMontoEstimado = async (id_caja) => {
     try {
-        const result = await sql
-            .request()
+        // CORRECCIÓN: Se cambió .request() encadenado por la instancia 'new sql.Request()'
+        const request = new sql.Request();
+        const result = await request
             .input('id_caja', sql.Int, id_caja)
             .query(`
                 SELECT
@@ -140,22 +138,20 @@ const getMontoEstimado = async (id_caja) => {
 // Registrar cierre de caja
 const cerrarCaja = async (id_caja, montoFinal) => {
     try {
-        const result = await sql
-            .request()
+        // CORRECCIÓN: Se cambió .request() encadenado por la instancia 'new sql.Request()'
+        const request = new sql.Request();
+        const result = await request
             .input('id_caja', sql.Int, id_caja)
             .input('montoFinal', sql.Decimal(10, 2), montoFinal)
             .query(`
                 UPDATE CAJA
-
                 SET montoFinal = @montoFinal
-
                 OUTPUT
                     INSERTED.id_caja,
                     INSERTED.fecha,
                     INSERTED.montoInicial,
                     INSERTED.montoFinal,
                     INSERTED.id_usuario
-
                 WHERE id_caja = @id_caja
             `);
 
