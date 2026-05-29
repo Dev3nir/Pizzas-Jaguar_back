@@ -7,6 +7,11 @@ exports.addPedido = async (req, res) => {
     try {
         const data = req.body;
         
+        // Validar que no este vacio
+        if (!data || Object.keys(data).length === 0) {
+            return res.status(400).json({ error: 'Datos del pedido son requeridos' });
+        }
+        
         // 1. Crear el pedido en la BD
         const newPedido = await modelMostrador.createPedido(data);
 
@@ -16,17 +21,17 @@ exports.addPedido = async (req, res) => {
         else if (data.id_tipo_pedido === 3) tipoPedidoTexto = "Rappi";
         else if (data.id_tipo_pedido === 4) tipoPedidoTexto = "Salon";
 
-        // 3. Estructurar los productos combinando req.body y los IDs generados
-        const productosEstructurados = data.productos.map((prod, index) => ({
-            id_detalle: newPedido.detalles[index]?.id_detalle || null,
-            cantidad: prod.cantidad,
-            orilla: prod.orilla_queso || false,
-            id_producto: prod.id_producto,
-            nombre: prod.nombre || "Desconocido", // Asume que el frontend envía el nombre en req.body
-            tamano: prod.tamano || "",            // Asume que el frontend envía el tamaño
-            precio: prod.precio || 0,
-            extras: prod.extras || [],
-            orilla_queso: prod.orilla_queso || false
+        // 3. Estructurar los productos usando la respuesta del modelo (que ya consultó la BD)
+        const productosEstructurados = newPedido.detalles.map(detalle => ({
+            id_detalle: detalle.id_detalle,
+            cantidad: detalle.cantidad,
+            orilla: detalle.orilla,
+            id_producto: detalle.id_producto,
+            nombre: detalle.nombre,             // Viene directo de la BD en tu modelo
+            tamano: detalle.tamano,             // Viene directo de la BD en tu modelo
+            precio: detalle.precio_base,        // Tu modelo lo nombra como 'precio_base'
+            extras: detalle.extras || [],
+            orilla_queso: detalle.orilla        // Mantenemos esto por si el front lo requiere
         }));
 
         // 4. Construir la estructura EXACTA del GET (Array con 1 objeto)
@@ -48,12 +53,13 @@ exports.addPedido = async (req, res) => {
             const payloadEmision = {
                 event: "pedido",
                 emisor: "mostrador",
-                data: estructuraGetPedidos, // Aquí inyectamos el array formateado
+                data: estructuraGetPedidos, 
                 destino: "cocina"
             };
             
             io.to('sala-pedidos').emit('nuevo-pedido', payloadEmision);
-            console.log(`Pedido ${newPedido.id_pedido} emitido a cocina con la estructura requerida.`);
+            console.log(estructuraGetPedidos);
+            console.log(estructuraGetPedidos[0].productos);
         } catch (wsError) {
             console.error('Error al emitir por WebSocket:', wsError.message);
         }
@@ -68,6 +74,9 @@ exports.addPedido = async (req, res) => {
 exports.getPedidoById = async (req, res) => {
     try {
         const id = req.params.id;
+        if (!id) {
+            return res.status(400).json({ error: 'ID del pedido es requerido' });
+        }
         const pedido = await modelMostrador.getPedidoById(id);
         if (!pedido) {
             return res.status(404).json({ error: 'Pedido no encontrado' });
@@ -103,6 +112,9 @@ exports.getEstadisticas = async (req, res) => {
 exports.cancelarPedido = async (req, res) => {
     try {
         const id = req.params.id;
+        if(!id) {
+            return res.status(400).json({ error: 'ID del pedido es requerido' });
+        }
         // Obtenemos el valor de merma (por defecto false si no lo envían)
         const esMerma = req.body.merma === true; 
 
@@ -124,6 +136,11 @@ exports.cancelarPedido = async (req, res) => {
 exports.updatePedido = async (req, res) => {
     try {
         const id = req.params.id;
+        // Validar que el ID esté presente
+        if (!id) {
+            return res.status(400).json({ error: 'ID del pedido es requerido' });
+        }
+
         const data = req.body;
         const resultado = await modelMostrador.updatePedido(id, data);
         if (!resultado) {
@@ -141,6 +158,10 @@ exports.pagarPedido = async (req, res) => {
         // --- CAMBIO AQUÍ ---
         // Si req.body es un array, úsalo como los pagos. 
         // Si es un objeto { "pagos": [...] }, usa req.body.pagos.
+        //validar que el id este presente
+        if (!id) {
+            return res.status(400).json({ error: 'ID del pedido es requerido' });
+        }
         const pagos = Array.isArray(req.body) ? req.body : req.body.pagos;
 
         if (!pagos) {
